@@ -7,6 +7,7 @@ interface SlowDecipherTextProps {
   trigger?: number | string
   durationMs?: number
   stepMs?: number
+  loop?: boolean
 }
 
 const DECIPHER_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%*+-<>"
@@ -18,6 +19,7 @@ export function SlowDecipherText({
   trigger = 0,
   durationMs = 2100,
   stepMs = 52,
+  loop = false,
 }: SlowDecipherTextProps) {
   const targetChars = useMemo(() => Array.from(text), [text])
   const [displayedText, setDisplayedText] = useState("")
@@ -47,6 +49,14 @@ export function SlowDecipherText({
     const intervalId = window.setInterval(() => {
       frame += 1
 
+      if (loop) {
+        const loopFrame = frame % (totalFrames + 1)
+        const revealProgress = loopFrame / totalFrames
+        const revealCount = Math.floor(revealProgress * targetChars.length)
+        setDisplayedText(buildFrameText(revealCount))
+        return
+      }
+
       const revealProgress = frame / totalFrames
       const revealCount = Math.floor(revealProgress * targetChars.length)
       setDisplayedText(buildFrameText(revealCount))
@@ -60,7 +70,7 @@ export function SlowDecipherText({
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [durationMs, stepMs, targetChars, text, trigger])
+  }, [durationMs, stepMs, targetChars, text, trigger, loop])
 
   return <>{displayedText}</>
 }

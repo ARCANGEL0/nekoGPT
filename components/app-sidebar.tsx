@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
 import Image from "next/image"
+import { createPortal } from "react-dom"
 import {
   Sidebar,
   SidebarContent,
@@ -17,10 +18,11 @@ import { MessageSquare, Pencil, Trash2 } from "lucide-react"
 import { useChatStore } from "@/hooks/use-chat-store"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
-import { Animator, FrameNefrex } from "@arwes/react"
+import { Animator, FrameNefrex, FrameUnderline, useBleeps } from "@arwes/react"
 import { ArwesActionButton } from "@/components/arwes-action-button"
 import { ArwesTypedText } from "@/components/ui/arwes-typed-text"
 import {
+  arwesUnder1,
   arwesCard1,
   arwesPanel1,
 } from "@/components/ui/arwes-frame-settings"
@@ -31,19 +33,26 @@ interface AppSidebarProps {
   onNewChat?: () => void
 }
 
+const toastFrameStyle = {
+  "--arwes-frames-bg-color": "transparent",
+  "--arwes-frames-line-color": "rgba(109, 248, 255, 0.95)",
+  "--arwes-frames-deco-color": "rgba(190, 255, 255, 0.98)",
+  "--arwes-frames-bg-filter": "none",
+  "--arwes-frames-line-filter": "drop-shadow(0 0 10px rgba(0, 239, 255, 0.36))",
+} as CSSProperties
+
 export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarProps) {
   const { chats, deleteChat, updateChat } = useChatStore()
+  const bleeps = useBleeps<"notify">()
   const { isMobile, setOpenMobile } = useSidebar()
   const [editId, setEditingChatId] = useState<string | null>(null)
   const [editTitle, setEditingTitle] = useState("")
-  const [unseenChatIds, setUnseenChatIds] = useState<string[]>([])
-  const [replyToast, setReplyToast] = useState<string | null>(null)
-  const [isReplyToastExiting, setIsReplyToastExiting] = useState(false)
+  const [hotChatIds, setHotChatIds] = useState<Set<string>>(() => new Set())
   const editRef = useRef<HTMLInputElement>(null)
-  const lastAidByChatRef = useRef<Map<string, string>>(new Map())
-  const hasAidBaselineRef = useRef(false)
-  const replyToastTimerRef = useRef<number | null>(null)
-  const replyToastOutRef = useRef<number | null>(null)
+  const lastSeenMsgByChatRef = useRef<Map<string, string>>(new Map())
+  const hasMountedRef = useRef(false)
+  const toastChat = chats.find((chat) => hotChatIds.has(chat.id))
+  const notifToast = toastChat ? `${toastChat.title} | New message!!` : null
 
   useEffect(() => {
     if (editId) {
@@ -52,81 +61,68 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
     }
   }, [editId])
 
-  useEffect(() => {
-    return () => {
-      if (replyToastTimerRef.current) {
-        window.clearTimeout(replyToastTimerRef.current)
+  const markChatHot = useCallback((chatId: string) => {
+    setHotChatIds((prev) => {
+      if (prev.has(chatId)) {
+        return prev
       }
-      if (replyToastOutRef.current) {
-        window.clearTimeout(replyToastOutRef.current)
-      }
-    }
-  }, [])
-
-  const showReplyToast = useCallback((message: string) => {
-    setIsReplyToastExiting(false)
-    setReplyToast(message)
-
-    if (replyToastTimerRef.current) {
-      window.clearTimeout(replyToastTimerRef.current)
-    }
-    if (replyToastOutRef.current) {
-      window.clearTimeout(replyToastOutRef.current)
-    }
-
-    replyToastTimerRef.current = window.setTimeout(() => {
-      setIsReplyToastExiting(true)
-      replyToastOutRef.current = window.setTimeout(() => {
-        setReplyToast(null)
-        setIsReplyToastExiting(false)
-      }, 220)
-    }, 2200)
+      const next = new Set(prev)
+      next.add(chatId)
+      return next
+    })
   }, [])
 
   useEffect(() => {
-    const nextAidByChat = new Map<string, string>()
+    const nextSeen = new Map<string, string>()
+
     chats.forEach((chat) => {
       const lastAssistantMessage = [...chat.messages]
         .reverse()
-        .find((message) => message.role === "assistant")
-      if (lastAssistantMessage) {
-        nextAidByChat.set(chat.id, lastAssistantMessage.id)
-      }
+        .find((message) => message.role === "assistant" && message.responseState !== "loading")
+      nextSeen.set(chat.id, lastAssistantMessage?.id ?? "")
     })
 
-    if (!hasAidBaselineRef.current) {
-      hasAidBaselineRef.current = true
-      lastAidByChatRef.current = nextAidByChat
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true
+      lastSeenMsgByChatRef.current = nextSeen
       return
     }
 
-    const prevAidByChat = lastAidByChatRef.current
-    const nextUnread = new Set(unseenChatIds)
-
-    chats.forEach((chat) => {
-      const prevLastAidId = prevAidByChat.get(chat.id)
-      const nextLastAidId = nextAidByChat.get(chat.id)
-      if (!prevLastAidId || !nextLastAidId) return
-      if (prevLastAidId === nextLastAidId) return
-      if (chat.id === curChatId) return
-      nextUnread.add(chat.id)
-      showReplyToast(`${chat.title} | New Messages!`)
-    })
-
-    const validChatIds = new Set(chats.map((chat) => chat.id))
-    const filteredUnread = Array.from(nextUnread).filter((chatId) => validChatIds.has(chatId))
-    if (filteredUnread.length !== unseenChatIds.length ||
-      filteredUnread.some((chatId, index) => unseenChatIds[index] !== chatId)
-    ) {
-      setUnseenChatIds(filteredUnread)
+    const prevSeen = lastSeenMsgByChatRef.current
+    if (prevSeen.size === 0) {
+      lastSeenMsgByChatRef.current = nextSeen
+      return
     }
 
-    lastAidByChatRef.current = nextAidByChat
-  }, [chats, curChatId, showReplyToast, unseenChatIds])
+    let hasNewInactiveMessage = false
+
+    chats.forEach((chat) => {
+      const currentAssistantId = nextSeen.get(chat.id) ?? ""
+      if (!currentAssistantId) return
+
+      const previousAssistantId = prevSeen.get(chat.id) ?? ""
+      if (previousAssistantId === currentAssistantId) return
+      if (chat.id === curChatId) return
+
+      markChatHot(chat.id)
+      hasNewInactiveMessage = true
+    })
+
+    if (hasNewInactiveMessage) {
+      bleeps.notify?.play("toast-notify")
+    }
+
+    lastSeenMsgByChatRef.current = nextSeen
+  }, [bleeps, chats, curChatId, markChatHot])
 
   useEffect(() => {
     if (!curChatId) return
-    setUnseenChatIds((prev) => prev.filter((chatId) => chatId !== curChatId))
+    setHotChatIds((prev) => {
+      if (!prev.has(curChatId)) return prev
+      const next = new Set(prev)
+      next.delete(curChatId)
+      return next
+    })
   }, [curChatId])
 
   const closeSideM = () => {
@@ -136,7 +132,12 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   }
 
   const pickChat = (chatId: string) => {
-    setUnseenChatIds((prev) => prev.filter((id) => id !== chatId))
+    setHotChatIds((prev) => {
+      if (!prev.has(chatId)) return prev
+      const next = new Set(prev)
+      next.delete(chatId)
+      return next
+    })
     onChatSelect?.(chatId)
     closeSideM()
   }
@@ -149,6 +150,12 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   const delChat = (event: React.MouseEvent, chatId: string) => {
     event.stopPropagation()
     deleteChat(chatId)
+    setHotChatIds((prev) => {
+      if (!prev.has(chatId)) return prev
+      const next = new Set(prev)
+      next.delete(chatId)
+      return next
+    })
 
     if (curChatId === chatId) {
       onNewChat?.()
@@ -214,23 +221,21 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
                     const isEditing = editId === chat.id
                     const hideForNew = chat.title.trim().toLowerCase() === "new chat"
                     const isActive = curChatId === chat.id
-                    const hasUnseenReply = !isActive && unseenChatIds.includes(chat.id)
+                    const isHot = hotChatIds.has(chat.id)
 
                     return (
-                      <SidebarMenuItem key={chat.id} className="mx-6 min-w-0 sideitem">
-                        <div
-                          className={`group relative grid min-w-0 grid-cols-[minmax(0,3fr)_auto] items-center gap-3 ${
-                            hasUnseenReply ? "arwes-session-unseen-glitch" : ""
-                          }`}
-                        >
-                          {hasUnseenReply && <span className="arwes-session-unseen-dot" aria-hidden />}
+                      <SidebarMenuItem
+                        key={chat.id}
+                        className={`mx-6 min-w-0 sideitem ${isHot ? "arwes-session-hot-shell" : ""}`}
+                      >
+                        <div className="group relative grid min-w-0 grid-cols-[minmax(0,3fr)_auto]  items-center gap-3">
                           <FrameNefrex
                             {...arwesCard1}
                             className={`pointer-events-none absolute inset-0 z-0 transition-opacity ${
-                              hasUnseenReply
-                                ? "arwes-session-unseen-frame opacity-85"
-                                : isActive
-                                  ? "opacity-80"
+                              isActive
+                                ? "opacity-80"
+                                : isHot
+                                  ? "opacity-90 arwes-session-hot-frame"
                                   : "opacity-45 group-hover:opacity-70"
                             }`}
                           />
@@ -241,8 +246,11 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
                               }
                             }}
                             isActive={isActive}
-                            className="arwes-session-item-shape relative z-10 min-w-0 w-full bg-transparent text-cyan-200/90 data-[active=true]:text-cyan-100"
+                            className={`arwes-session-item-shape relative z-10 min-w-0 w-full bg-transparent text-cyan-200/90 data-[active=true]:text-cyan-100 ${
+                              isHot ? "arwes-session-hot-button" : ""
+                            }`}
                           >
+                            {isHot && <span className="arwes-session-hot-dot" aria-hidden />}
                             <MessageSquare className="h-4 w-4 mt-6 ml-4" />
                             {isEditing ? (
                               <Input
@@ -327,17 +335,34 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
           </div>
         </div>
       </SidebarContent>
-      {replyToast && (
-        <div className="pointer-events-none fixed left-1/2 top-5 z-[10020] w-max max-w-[86vw] -translate-x-1/2">
-          <div
-            className={`cyberpunk-toast_notif cyberpunk-tooltip-content relative px-3 py-1.5 ${
-              isReplyToastExiting ? "cyberpunk-toast-out" : "cyberpunk-toast-in"
-            }`}
-          >
-            <span className="sidebar-reply-toast-text">{replyToast}</span>
-          </div>
-        </div>
-      )}
+      {typeof window !== "undefined" &&
+        createPortal(
+          notifToast ? (
+            <div className="pointer-events-none fixed bottom-24 left-1/2 z-[10000] w-max max-w-[85vw] -translate-x-1/2 sm:bottom-6 sm:left-auto sm:right-6 sm:translate-x-0">
+              <div className="cyberpunk-toast_notif cyberpunk-tooltip-content cyberpunk-toast-in relative px-3 py-1.5">
+                <FrameUnderline
+                  {...arwesUnder1}
+                  style={toastFrameStyle}
+                  className="cyberpunk-tooltip-frame cyberpunk-tooltip-frame-main pointer-events-none absolute inset-0 z-[1]"
+                />
+                <FrameUnderline
+                  {...arwesUnder1}
+                  style={toastFrameStyle}
+                  className="cyberpunk-tooltip-frame cyberpunk-tooltip-frame-inner pointer-events-none absolute inset-[2px] z-[1]"
+                />
+                <div className="relative z-[2]">
+                  <ArwesTypedText
+                    as="span"
+                    className="cyberpunk-tooltip-text"
+                    text={notifToast}
+                    trigger={`sidebar-toast-${notifToast}`}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null,
+          document.body
+        )}
     </Sidebar>
   )
 }

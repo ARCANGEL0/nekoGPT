@@ -6,7 +6,7 @@ import { createPortal } from "react-dom"
 import { Textarea } from "@/components/ui/textarea"
 import { ChevronLeft, ChevronRight, Copy, Download, Paperclip, Pencil, RotateCcw, Send, Square, Trash2, X } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import type { ChatMode } from "@/components/layout-wrapper"
+import { useChatSess, type ChatMode } from "@/components/layout-wrapper"
 import { useChatStore } from "@/hooks/use-chat-store"
 import { Message } from "@/lib/chat-store"
 import { ArwesActionButton } from "@/components/arwes-action-button"
@@ -91,6 +91,12 @@ interface PendingImageTask {
   createdAt: number
 }
 
+interface ActiveChatRequest {
+  token: number
+  abortController: AbortController | null
+  loadingMessageId: string
+}
+
 type ImageTaskInit =
   | { status: "done"; content: string }
   | { status: "pending"; kind: ImageTaskKind; taskId: string }
@@ -159,15 +165,14 @@ const okImgFile = (file: File): boolean => {
 
 export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps) {
   const { chats, addMessage, getChat, updateChat } = useChatStore()
+  const { setChatMode } = useChatSess()
   const bleeps = useBleeps<"notify" | "assemble" | "content">()
   const [hasInput, setHasInput] = useState(false)
   const [attachments, setAttachments] = useState<File[]>([])
-  const [isRequestInFlight, setIsRequestInFlight] = useState(false)
-  const [isLoadingVisible, setIsLoadingVisible] = useState(false)
-  const [loadingAnimationTick, setLoadingAnimationTick] = useState(0)
+  const [isEditPromptGlow, setIsEditPromptGlow] = useState(false)
+  const [inFlightChatIds, setInFlightChatIds] = useState<Set<string>>(() => new Set())
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [isToastExiting, setIsToastExiting] = useState(false)
-  const [isPromptHighlighted, setIsPromptHighlighted] = useState(false)
   const [isGalleryOpen, setIsGalleryOpen] = useState(false)
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0)
   const maxFiles = chatMode === "image" ? 4 : 1
@@ -176,14 +181,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
   const inputValueRef = useRef("")
   const viewRef = useRef<HTMLDivElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const tokenRef = useRef(0)
+  const reqMetaByChatRef = useRef<Map<string, ActiveChatRequest>>(new Map())
+  const reqTokenByChatRef = useRef<Map<string, number>>(new Map())
   const toastTimerRef = useRef<number | null>(null)
   const toastOutRef = useRef<number | null>(null)
-  const promptHighlightTimerRef = useRef<number | null>(null)
   const prevAidIdRef = useRef<string | undefined>(undefined)
-  const loadAidRef = useRef<{ chatId: string; messageId: string } | null>(null)
-  const reqKindRef = useRef<"image" | "other" | null>(null)
   const pendingImageTasksRef = useRef<Map<string, PendingImageTask>>(new Map())
   const pendingTaskPollTimersRef = useRef<Map<string, number>>(new Map())
   const pendingTaskInFlightRef = useRef<Set<string>>(new Set())
@@ -193,21 +195,13 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     vis: -1,
   })
 
-  const messages = useMemo(
-    () => (chatId ? chats.find((chat) => chat.id === chatId)?.messages ?? [] : []),
+  const currentChat = useMemo(
+    () => (chatId ? chats.find((chat) => chat.id === chatId) : undefined),
     [chatId, chats]
   )
+  const messages = useMemo(() => currentChat?.messages ?? [], [currentChat])
   const lastAidMsg = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant"),
-    [messages]
-  )
-  const hasLoadingMessages = useMemo(
-    () =>
-      messages.some(
-        (message) =>
-          message.role === "assistant" &&
-          (message.responseState === "loading" || message.id.startsWith("assistant-loading-"))
-      ),
     [messages]
   )
   const lastAidId = lastAidMsg?.id
@@ -225,6 +219,44 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     return { galleryImages: nextGalleryImages, imgKeyMap: nextImgKeyMap }
   }, [messages])
   const curImg = galleryImages[activeGalleryIndex] ?? null
+  const isRequestInFlight = Boolean(chatId && inFlightChatIds.has(chatId))
+
+  const setChatInFlight = useCallback((targetChatId: string, inFlight: boolean) => {
+    setInFlightChatIds((prev) => {
+      const alreadyInFlight = prev.has(targetChatId)
+      if (alreadyInFlight === inFlight) {
+        return prev
+      }
+
+      const next = new Set(prev)
+      if (inFlight) {
+        next.add(targetChatId)
+      } else {
+        next.delete(targetChatId)
+      }
+      return next
+    })
+  }, [])
+
+  const nextReqToken = useCallback((targetChatId: string): number => {
+    const nextToken = (reqTokenByChatRef.current.get(targetChatId) ?? 0) + 1
+    reqTokenByChatRef.current.set(targetChatId, nextToken)
+    return nextToken
+  }, [])
+
+  const isReqTokenCurrent = useCallback((targetChatId: string, reqToken: number): boolean => {
+    return (reqTokenByChatRef.current.get(targetChatId) ?? 0) === reqToken
+  }, [])
+
+  const finishChatRequest = useCallback((targetChatId: string, loadingMessageId?: string) => {
+    const currentReqMeta = reqMetaByChatRef.current.get(targetChatId)
+    if (!currentReqMeta) return
+    if (loadingMessageId && currentReqMeta.loadingMessageId !== loadingMessageId) {
+      return
+    }
+    reqMetaByChatRef.current.delete(targetChatId)
+    setChatInFlight(targetChatId, false)
+  }, [setChatInFlight])
 
   const addAidMsg = useCallback((
     targetChatId: string,
@@ -241,10 +273,6 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     addMessage(targetChatId, assistantMessage)
   }, [addMessage])
 
-  const setLoadAid = (chatId: string, messageId: string | null) => {
-    loadAidRef.current = messageId ? { chatId, messageId } : null
-  }
-
   const addLoadAidMsg = (targetChatId: string, reqTok: number): string => {
     const loadMsgId = `assistant-loading-${reqTok}-${Date.now()}`
     const loadingMessage: Message = {
@@ -255,7 +283,6 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       responseState: "loading",
     }
     addMessage(targetChatId, loadingMessage)
-    setLoadAid(targetChatId, loadMsgId)
     return loadMsgId
   }
 
@@ -427,19 +454,38 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     })
   }
 
-  const stopReq = () => {
-    const loadAid = loadAidRef.current
-    if (loadAid) {
-      rmLoadAidMsg(loadAid.chatId, loadAid.messageId)
-      loadAidRef.current = null
+  const stopReq = (targetChatId?: string) => {
+    const chatToStop = targetChatId ?? chatId
+    if (!chatToStop) return
+
+    const reqMeta = reqMetaByChatRef.current.get(chatToStop)
+    if (reqMeta) {
+      rmLoadAidMsg(chatToStop, reqMeta.loadingMessageId)
     }
 
-    tokenRef.current += 1
-    reqKindRef.current = null
-    abortRef.current?.abort()
-    abortRef.current = null
-    setIsRequestInFlight(false)
-    setIsLoadingVisible(false)
+    pendingImageTasksRef.current.forEach((task, taskKey) => {
+      if (task.chatId !== chatToStop) {
+        return
+      }
+
+      if (reqMeta && task.loadingMessageId !== reqMeta.loadingMessageId) {
+        return
+      }
+
+      const timerId = pendingTaskPollTimersRef.current.get(taskKey)
+      if (timerId) {
+        window.clearInterval(timerId)
+        pendingTaskPollTimersRef.current.delete(taskKey)
+      }
+      pendingTaskInFlightRef.current.delete(taskKey)
+      pendingImageTasksRef.current.delete(taskKey)
+    })
+    savePendingImageTasks()
+
+    nextReqToken(chatToStop)
+    reqMeta?.abortController?.abort()
+    reqMetaByChatRef.current.delete(chatToStop)
+    setChatInFlight(chatToStop, false)
   }
 
   const rtjson = useCallback((rawText: string): Record<string, unknown> | null => {
@@ -673,6 +719,10 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
 
       const status = typeof data.status === "string" ? data.status.toLowerCase() : ""
       const responseText = typeof data.response === "string" ? data.response : ""
+      const taskStillActive = pendingImageTasksRef.current.has(taskKey)
+      if (!taskStillActive) {
+        return
+      }
 
       if (status === "completed" || (!status && responseText.trim().length > 0)) {
         const completedContent =
@@ -688,6 +738,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
           completedContent,
           chekError(completedContent) ? "error" : "ok"
         )
+        finishChatRequest(task.chatId, task.loadingMessageId)
         rmPendingImageTask(taskKey)
         return
       }
@@ -701,13 +752,14 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
             : pickErr("img")
 
         repLoadAidMsg(task.chatId, task.loadingMessageId, errorContent, "error")
+        finishChatRequest(task.chatId, task.loadingMessageId)
         rmPendingImageTask(taskKey)
       }
     } catch {
     } finally {
       pendingTaskInFlightRef.current.delete(taskKey)
     }
-  }, [chekError, getChat, mkUrl, normImg, pickErr, repLoadAidMsg, rmPendingImageTask, rtjson])
+  }, [chekError, finishChatRequest, getChat, mkUrl, normImg, pickErr, repLoadAidMsg, rmPendingImageTask, rtjson])
 
   const startPendingImageTask = useCallback((taskKey: string) => {
     const task = pendingImageTasksRef.current.get(taskKey)
@@ -822,17 +874,18 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     prompt: string,
     filesIn: File[] = []
   ) => {
-    const reqTok = tokenRef.current + 1
-    tokenRef.current = reqTok
+    const reqTok = nextReqToken(targetChatId)
+    let keepLoadingActive = false
     const { chatName } = reqCtx(targetChatId)
 
     const ctrl = new AbortController()
-    reqKindRef.current = chatMode === "image" ? "image" : "other"
-    abortRef.current = ctrl
-    setIsRequestInFlight(true)
-    setIsLoadingVisible(true)
-    setLoadingAnimationTick((value) => value + 1)
+    setChatInFlight(targetChatId, true)
     const loadMsgId = addLoadAidMsg(targetChatId, reqTok)
+    reqMetaByChatRef.current.set(targetChatId, {
+      token: reqTok,
+      abortController: ctrl,
+      loadingMessageId: loadMsgId,
+    })
 
     try {
       if (chatMode === "image") {
@@ -869,7 +922,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
           })()
         }
 
-        if (tokenRef.current !== reqTok) return
+        if (!isReqTokenCurrent(targetChatId, reqTok)) return
         if (initResult.status === "done") {
           repLoadAidMsg(
             targetChatId,
@@ -889,6 +942,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
           createdAt: Date.now(),
         }
         addPendingImageTask(pendingTask)
+        keepLoadingActive = true
         return
       }
 
@@ -903,7 +957,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
           ctrl.signal
         )
 
-        if (tokenRef.current !== reqTok) return
+        if (!isReqTokenCurrent(targetChatId, reqTok)) return
         repLoadAidMsg(
           targetChatId,
           loadMsgId,
@@ -922,19 +976,15 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         ctrl.signal
       )
 
-      if (tokenRef.current !== reqTok) return
+      if (!isReqTokenCurrent(targetChatId, reqTok)) return
       repLoadAidMsg(
         targetChatId,
         loadMsgId,
         responseText,
         chekError(responseText) ? "error" : "ok"
       )
-      if (isVis) {
-        if (tokenRef.current !== reqTok) return
-        setIsLoadingVisible(false)
-      }
     } catch (error) {
-      if (tokenRef.current !== reqTok) return
+      if (!isReqTokenCurrent(targetChatId, reqTok)) return
       if (error instanceof DOMException && error.name === "AbortError") {
         rmLoadAidMsg(targetChatId, loadMsgId)
         return
@@ -947,12 +997,20 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         "error"
       )
     } finally {
-      if (tokenRef.current === reqTok) {
-        abortRef.current = null
-        reqKindRef.current = null
-        loadAidRef.current = null
-        setIsRequestInFlight(false)
-        setIsLoadingVisible(false)
+      if (!isReqTokenCurrent(targetChatId, reqTok)) {
+        return
+      }
+
+      if (!keepLoadingActive) {
+        finishChatRequest(targetChatId, loadMsgId)
+      } else {
+        const currentReqMeta = reqMetaByChatRef.current.get(targetChatId)
+        if (currentReqMeta && currentReqMeta.token === reqTok) {
+          reqMetaByChatRef.current.set(targetChatId, {
+            ...currentReqMeta,
+            abortController: null,
+          })
+        }
       }
     }
   }
@@ -966,9 +1024,13 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
   useEffect(() => {
     const pendingPollTimers = pendingTaskPollTimersRef.current
     const pendingInFlightTasks = pendingTaskInFlightRef.current
+    const reqMetaByChat = reqMetaByChatRef.current
 
     return () => {
-      abortRef.current?.abort()
+      reqMetaByChat.forEach((reqMeta) => {
+        reqMeta.abortController?.abort()
+      })
+      reqMetaByChat.clear()
       pendingPollTimers.forEach((timerId) => {
         window.clearInterval(timerId)
       })
@@ -979,9 +1041,6 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       }
       if (toastOutRef.current) {
         window.clearTimeout(toastOutRef.current)
-      }
-      if (promptHighlightTimerRef.current) {
-        window.clearTimeout(promptHighlightTimerRef.current)
       }
     }
   }, [])
@@ -1025,48 +1084,20 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       }
 
       loadedTasks.forEach((task) => {
+        const taskToken = nextReqToken(task.chatId)
+        reqMetaByChatRef.current.set(task.chatId, {
+          token: taskToken,
+          abortController: null,
+          loadingMessageId: task.loadingMessageId,
+        })
+        setChatInFlight(task.chatId, true)
         pendingImageTasksRef.current.set(task.key, task)
         startPendingImageTask(task.key)
       })
       savePendingImageTasks()
     } catch {
     }
-  }, [savePendingImageTasks, startPendingImageTask])
-
-  useEffect(() => {
-    if (abortRef.current && reqKindRef.current !== "image") {
-      const loadAid = loadAidRef.current
-      if (loadAid) {
-        const loadChat = getChat(loadAid.chatId)
-        if (loadChat) {
-          const leftMsgs = loadChat.messages.filter(
-            (message) => message.id !== loadAid.messageId
-          )
-          if (leftMsgs.length !== loadChat.messages.length) {
-            updateChat(loadAid.chatId, { messages: leftMsgs })
-          }
-        }
-        loadAidRef.current = null
-      }
-
-      tokenRef.current += 1
-      reqKindRef.current = null
-      abortRef.current.abort()
-      abortRef.current = null
-      setIsRequestInFlight(false)
-      setIsLoadingVisible(false)
-    }
-  }, [chatId, chatMode, getChat, updateChat])
-
-  useEffect(() => {
-    if (!hasLoadingMessages) return
-
-    const intervalId = window.setInterval(() => {
-      setLoadingAnimationTick((value) => value + 1)
-    }, 2600)
-
-    return () => window.clearInterval(intervalId)
-  }, [hasLoadingMessages])
+  }, [nextReqToken, savePendingImageTasks, setChatInFlight, startPendingImageTask])
 
   useEffect(() => {
     setAttachments((prev) => {
@@ -1125,6 +1156,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     addMessage(chatId, newMessage)
     inputValueRef.current = ""
     setHasInput(false)
+    setIsEditPromptGlow(false)
     if (textAreaRef.current) {
       textAreaRef.current.value = ""
     }
@@ -1146,13 +1178,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     if (lastUserIndex < 0) return
 
     const lastUserMessage = chat.messages[lastUserIndex]
+    const keepMsgs = chat.messages.slice(0, lastUserIndex + 1)
     const lastFiles = lastUserMessage.attachments ?? []
 
-    if (chatMode !== "image") {
-      const keepMsgs = chat.messages.slice(0, lastUserIndex + 1)
-      if (keepMsgs.length !== chat.messages.length) {
-        updateChat(chatId, { messages: keepMsgs })
-      }
+    if (keepMsgs.length !== chat.messages.length) {
+      updateChat(chatId, { messages: keepMsgs })
     }
 
     await askAi(chatId, lastUserMessage.content, lastFiles)
@@ -1231,6 +1261,76 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     return `image-${Date.now()}.png`
   }, [])
 
+  const nameFromDisposition = useCallback((contentDisposition: string | null): string | null => {
+    if (!contentDisposition) return null
+
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]).trim()
+      } catch {
+      }
+    }
+
+    const fallbackMatch = contentDisposition.match(/filename="?([^\";]+)"?/i)
+    if (fallbackMatch?.[1]) {
+      const candidate = fallbackMatch[1].trim()
+      if (candidate.length > 0) {
+        return candidate
+      }
+    }
+
+    return null
+  }, [])
+
+  const blobToDataUrl = useCallback((blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(new Error("Failed to encode image for edit."))
+      reader.onload = () => {
+        const dataUrl = typeof reader.result === "string" ? reader.result : ""
+        if (!dataUrl) {
+          reject(new Error("Image encode returned empty payload."))
+          return
+        }
+        resolve(dataUrl)
+      }
+      reader.readAsDataURL(blob)
+    })
+  }, [])
+
+  const dataUrlToFile = useCallback((dataUrl: string, fileName: string): File => {
+    const [header, base64Payload] = dataUrl.split(",")
+    if (!header || !base64Payload) {
+      throw new Error("Invalid image payload for edit.")
+    }
+
+    const mimeMatch = header.match(/data:([^;]+);base64/i)
+    const mimeType = mimeMatch?.[1] ?? "image/png"
+    const decoded = atob(base64Payload)
+    const bytes = new Uint8Array(decoded.length)
+    for (let i = 0; i < decoded.length; i += 1) {
+      bytes[i] = decoded.charCodeAt(i)
+    }
+
+    return new File([bytes], fileName, { type: mimeType })
+  }, [])
+
+  const imageUrlToEditFile = useCallback(async (imageUrl: string): Promise<File> => {
+    const proxiedUrl = `/api/download-image?url=${encodeURIComponent(imageUrl)}`
+    const response = await fetch(proxiedUrl, { cache: "no-store" })
+    if (!response.ok) {
+      throw new Error(`Edit image download failed with status ${response.status}`)
+    }
+
+    const blob = await response.blob()
+    const dataUrl = await blobToDataUrl(blob)
+    const fileNameFromHeader = nameFromDisposition(response.headers.get("content-disposition"))
+    const fileName = fileNameFromHeader || imgName(imageUrl)
+
+    return dataUrlToFile(dataUrl, fileName)
+  }, [blobToDataUrl, dataUrlToFile, imgName, nameFromDisposition])
+
   const dlImg = useCallback(async (imageUrl: string) => {
     try {
       const obj1 = await fetch(imageUrl)
@@ -1255,53 +1355,30 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     }
   }, [imgName, showToast])
 
-  const focusPromptForEdit = useCallback(() => {
-    const textarea = textAreaRef.current
-    if (!textarea) return
-
-    textarea.focus()
-    textarea.select()
-    setIsPromptHighlighted(true)
-
-    if (promptHighlightTimerRef.current) {
-      window.clearTimeout(promptHighlightTimerRef.current)
-    }
-    promptHighlightTimerRef.current = window.setTimeout(() => {
-      setIsPromptHighlighted(false)
-    }, 1300)
-  }, [])
-
   const editImg = useCallback(async (imageUrl: string) => {
     try {
-      const response = await fetch(imageUrl)
-      if (!response.ok) {
-        throw new Error(`Edit image fetch failed with status ${response.status}`)
+      const editFile = await imageUrlToEditFile(imageUrl)
+      if (!okImgFile(editFile)) {
+        showToast("Only image files are supported")
+        return
       }
 
-      const blob = await response.blob()
-      const file = new File(
-        [blob],
-        imgName(imageUrl),
-        { type: blob.type && blob.type.startsWith("image/") ? blob.type : "image/png" }
-      )
-
-      const mergedFiles =
-        chatMode === "image" ? [...attachments, file] : [file]
-
-      if (mergedFiles.length > maxFiles) {
-        showToast(
-          chatMode === "image" ? "Maximum four images allowed" : "Only one image can be uploaded"
-        )
-      } else {
-        showToast("Image attached. Add an edit prompt.")
+      setAttachments([editFile])
+      setChatMode("image")
+      setIsEditPromptGlow(true)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
       }
 
-      setAttachments(mergedFiles.slice(0, maxFiles))
-      focusPromptForEdit()
+      window.requestAnimationFrame(() => {
+        textAreaRef.current?.focus()
+      })
+
+      showToast("Image attached. Describe what to edit.")
     } catch {
-      showToast("Could not attach image for editing")
+      showToast("Could not prepare image for edit")
     }
-  }, [attachments, chatMode, focusPromptForEdit, imgName, maxFiles, showToast])
+  }, [imageUrlToEditFile, setChatMode, showToast])
 
   const openGal = useCallback((imageKey: string) => {
     const index = imgKeyMap.get(imageKey)
@@ -1375,11 +1452,13 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     }
 
     setAttachments(mergedFiles.slice(0, maxFiles))
+    setIsEditPromptGlow(false)
     e.target.value = ""
   }
 
   const clearAttach = () => {
     setAttachments([])
+    setIsEditPromptGlow(false)
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
@@ -1390,6 +1469,9 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     inputValueRef.current = nextValue
     const nextHasInput = nextValue.trim().length > 0
     setHasInput((prev) => (prev === nextHasInput ? prev : nextHasInput))
+    if (nextHasInput) {
+      setIsEditPromptGlow(false)
+    }
   }, [])
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1545,8 +1627,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                 const txtBody = cleanImgUrls(message.content)
                 const isUserMessage = message.role === "user"
                 const isLoadAid =
-                  message.role === "assistant" &&
-                  (message.responseState === "loading" || message.id.startsWith("assistant-loading-"))
+                  message.role === "assistant" && message.id.startsWith("assistant-loading-")
                 const isErrAid =
                   message.role === "assistant" && message.responseState === "error"
                 const bubbleStyle = isUserMessage
@@ -1583,9 +1664,10 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                           {isLoadAid ? (
                             <p className="relative z-[2] text-decipher pending-loading-text text-cyan-200">
                               <SlowDecipherText
-                                text={message.content || LOADING_LABEL}
-                                trigger={`${message.id}-${loadingAnimationTick}`}
-                                durationMs={2400}
+                                text={LOADING_LABEL}
+                                trigger={message.id}
+                                durationMs={1500}
+                                loop
                               />
                             </p>
                           ) : (
@@ -1641,44 +1723,24 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                       {message.role === "assistant" && !isLoadAid && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {inlineImgs.length > 0 && txtBody.length === 0 ? (
-                            <>
-                              <button
-                                type="button"
-                                className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
-                                onClick={() => dlImg(inlineImgs[0])}
-                              >
-                                <FrameCorners
-                                  style={aidActionStyle}
-                                  className="pointer-events-none absolute inset-0"
-                                  padding={1}
-                                />
-                                <Download className="relative z-[2] h-3.5 w-3.5" />
-                                <ArwesTypedText
-                                  as="span"
-                                  className="relative z-[2]"
-                                  text="Download image"
-                                  trigger={`${message.id}-download`}
-                                />
-                              </button>
-                              <button
-                                type="button"
-                                className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
-                                onClick={() => void editImg(inlineImgs[0])}
-                              >
-                                <FrameCorners
-                                  style={aidActionStyle}
-                                  className="pointer-events-none absolute inset-0"
-                                  padding={1}
-                                />
-                                <Pencil className="relative z-[2] h-3.5 w-3.5" />
-                                <ArwesTypedText
-                                  as="span"
-                                  className="relative z-[2]"
-                                  text="Edit"
-                                  trigger={`${message.id}-edit`}
-                                />
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
+                              onClick={() => dlImg(inlineImgs[0])}
+                            >
+                              <FrameCorners
+                                style={aidActionStyle}
+                                className="pointer-events-none absolute inset-0"
+                                padding={1}
+                              />
+                              <Download className="relative z-[2] h-3.5 w-3.5" />
+                              <ArwesTypedText
+                                as="span"
+                                className="relative z-[2]"
+                                text="Download image"
+                                trigger={`${message.id}-download`}
+                              />
+                            </button>
                           ) : (
                             <button
                               type="button"
@@ -1719,6 +1781,28 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                               trigger={`${message.id}-regenerate`}
                             />
                           </button>
+
+                          {inlineImgs.length > 0 && txtBody.length === 0 && (
+                            <button
+                              type="button"
+                              className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+                              onClick={() => editImg(inlineImgs[0])}
+                              disabled={isRequestInFlight}
+                            >
+                              <FrameCorners
+                                style={aidActionStyle}
+                                className="pointer-events-none absolute inset-0"
+                                padding={1}
+                              />
+                              <Pencil className="relative z-[2] h-3.5 w-3.5" />
+                              <ArwesTypedText
+                                as="span"
+                                className="relative z-[2]"
+                                text="Edit"
+                                trigger={`${message.id}-edit`}
+                              />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1746,9 +1830,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                     : "Type your message here..."
                 }
                 className={`arwes-chat-textarea-nefrex relative z-[2] min-h-[92px] resize-none bg-transparent pr-24 text-cyan-100 placeholder-cyan-400/50 ${
-                  isPromptHighlighted
-                    ? "ring-2 ring-cyan-300/80 shadow-[0_0_14px_rgba(102,246,255,0.32)]"
-                    : ""
+                  isEditPromptGlow ? "arwes-chat-textarea-edit-glow" : ""
                 }`}
               />
               <div className="absolute bottom-2 right-2 z-[4] flex gap-2">
@@ -1794,11 +1876,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                     </ArwesActionButton>
                   )}
 
-                  {isLoadingVisible ? (
+                  {isRequestInFlight ? (
                     <ArwesActionButton
                       type="button"
                       frame="octagon"
-                      onClick={stopReq}
+                      onClick={() => stopReq()}
                       className="arwes-octagon-button arwes-chat-action-octagon arwes-chat-action-octagon-stop h-8 w-8 min-h-0 p-0"
                     >
                       <Square className="h-4 w-4" />

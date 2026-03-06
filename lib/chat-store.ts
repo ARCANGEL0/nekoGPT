@@ -349,7 +349,12 @@ export class ChatStore {
   updateChat(id: string, updates: Partial<Chat>) {
     const chat = this.chats.get(id)
     if (chat) {
-      Object.assign(chat, updates, { updatedAt: new Date() })
+      const nextChat: Chat = {
+        ...chat,
+        ...updates,
+        updatedAt: new Date(),
+      }
+      this.chats.set(id, nextChat)
       this.notify()
     }
   }
@@ -357,13 +362,18 @@ export class ChatStore {
   addMessage(chatId: string, message: Message) {
     const chat = this.chats.get(chatId)
     if (chat) {
-      chat.messages.push(message)
-      chat.updatedAt = new Date()
-
-      if (chat.messages.length === 1 && message.role === 'user' && chat.title === 'New Chat') {
-        chat.title = message.content.slice(0, 30) + (message.content.length > 30 ? '...' : '')
+      const nextMessages = [...chat.messages, message]
+      const nextChat: Chat = {
+        ...chat,
+        messages: nextMessages,
+        updatedAt: new Date(),
       }
 
+      if (nextMessages.length === 1 && message.role === "user" && chat.title === "New Chat") {
+        nextChat.title = message.content.slice(0, 30) + (message.content.length > 30 ? "..." : "")
+      }
+
+      this.chats.set(chatId, nextChat)
       this.notify()
     }
   }
