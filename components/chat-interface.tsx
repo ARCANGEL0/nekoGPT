@@ -99,6 +99,7 @@ interface ActiveChatRequest {
 
 type ImageTaskInit =
   | { status: "done"; content: string }
+  | { status: "error" }
   | { status: "pending"; kind: ImageTaskKind; taskId: string }
 
 const IMG_URL_RX = /(https?:\/\/\S+?\.(?:png|jpe?g|gif|webp)(?:\?\S*)?)/gi
@@ -516,23 +517,17 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     return arr[i]
   }, [])
 
-  const normImg = useCallback((responseText: unknown): string => {
+  const normImg = useCallback((responseText: unknown): string | null => {
     if (typeof responseText !== "string") {
-      return pickErr("img")
+      return null
     }
 
     const imageUrls = getImgUrls(responseText)
     if (imageUrls.length === 0) {
-      return pickErr("img")
+      return null
     }
 
     return imageUrls[0]
-  }, [pickErr])
-
-  const chekError = useCallback((value: string): boolean => {
-    const normalized = value.trim().toLowerCase()
-    if (!normalized) return false
-    return /^\[❌\]\s*error\b/i.test(normalized)
   }, [])
 
   const toB64 = (file: File, signal: AbortSignal): Promise<string> =>
@@ -599,7 +594,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     )
 
     if (!initResponse.ok) {
-      return { status: "done", content: pickErr("img") }
+      return { status: "error" }
     }
 
     const initRawText = await initResponse.text()
@@ -610,16 +605,24 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         : initRawText
 
     if (!initData && immediateResponse.trim().length > 0) {
-      return { status: "done", content: normImg(immediateResponse) }
+      const imageUrl = normImg(immediateResponse)
+      if (!imageUrl) {
+        return { status: "error" }
+      }
+      return { status: "done", content: imageUrl }
     }
 
     if (typeof initData?.response === "string" && initData.response.trim().length > 0) {
-      return { status: "done", content: normImg(initData.response) }
+      const imageUrl = normImg(initData.response)
+      if (!imageUrl) {
+        return { status: "error" }
+      }
+      return { status: "done", content: imageUrl }
     }
 
     const taskId = typeof initData?.taskId === "string" ? initData.taskId : ""
     if (!taskId) {
-      return { status: "done", content: pickErr("img") }
+      return { status: "error" }
     }
 
     return { status: "pending", kind: "imagine", taskId }
@@ -725,18 +728,25 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       }
 
       if (status === "completed" || (!status && responseText.trim().length > 0)) {
-        const completedContent =
-          task.kind === "imagine"
-            ? normImg(responseText || rawText)
-            : responseText.trim().length > 0
-              ? responseText
-              : "Image task completed."
+        let completedContent = "Image task completed."
+        if (task.kind === "imagine") {
+          const imageUrl = normImg(responseText || rawText)
+          if (!imageUrl) {
+            repLoadAidMsg(task.chatId, task.loadingMessageId, pickErr("img"), "error")
+            finishChatRequest(task.chatId, task.loadingMessageId)
+            rmPendingImageTask(taskKey)
+            return
+          }
+          completedContent = imageUrl
+        } else if (responseText.trim().length > 0) {
+          completedContent = responseText
+        }
 
         repLoadAidMsg(
           task.chatId,
           task.loadingMessageId,
           completedContent,
-          chekError(completedContent) ? "error" : "ok"
+          "ok"
         )
         finishChatRequest(task.chatId, task.loadingMessageId)
         rmPendingImageTask(taskKey)
@@ -744,14 +754,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       }
 
       if (status === "error") {
-        const errorContent =
-          task.kind === "multiEdit" &&
-          typeof data.message === "string" &&
-          data.message.trim().length > 0
-            ? data.message
-            : pickErr("img")
-
-        repLoadAidMsg(task.chatId, task.loadingMessageId, errorContent, "error")
+        repLoadAidMsg(task.chatId, task.loadingMessageId, pickErr("img"), "error")
         finishChatRequest(task.chatId, task.loadingMessageId)
         rmPendingImageTask(taskKey)
       }
@@ -759,7 +762,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     } finally {
       pendingTaskInFlightRef.current.delete(taskKey)
     }
-  }, [chekError, finishChatRequest, getChat, mkUrl, normImg, pickErr, repLoadAidMsg, rmPendingImageTask, rtjson])
+  }, [finishChatRequest, getChat, mkUrl, normImg, pickErr, repLoadAidMsg, rmPendingImageTask, rtjson])
 
   const startPendingImageTask = useCallback((taskKey: string) => {
     const task = pendingImageTasksRef.current.get(taskKey)
@@ -823,7 +826,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       return trimmed
     }
 
-    return pickErr("api")
+    throw new Error("No valid response content from API.")
   }
 
   const req_vision = async (
@@ -866,7 +869,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       return trimmed
     }
 
-    return pickErr("vis")
+    throw new Error("No valid response content from vision API.")
   }
 
   const askAi = async (
@@ -875,6 +878,12 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     filesIn: File[] = []
   ) => {
     const reqTok = nextReqToken(targetChatId)
+    const hasVisInput = chatMode !== "image" && filesIn.length > 0
+    const reqErrKind: "api" | "img" | "vis" = chatMode === "image"
+      ? "img"
+      : hasVisInput
+        ? "vis"
+        : "api"
     let keepLoadingActive = false
     const { chatName } = reqCtx(targetChatId)
 
@@ -890,7 +899,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     try {
       if (chatMode === "image") {
         const imgs = filesIn.slice(0, 4)
-        let initResult: ImageTaskInit = { status: "done", content: pickErr("img") }
+        let initResult: ImageTaskInit = { status: "error" }
         if (imgs.length === 0) {
           try {
             initResult = await reqImagineInit(
@@ -903,7 +912,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
             if (error instanceof DOMException && error.name === "AbortError") {
               throw error
             }
-            initResult = { status: "done", content: pickErr("img") }
+            initResult = { status: "error" }
           }
         } else {
           initResult = await (async () => {
@@ -923,12 +932,17 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         }
 
         if (!isReqTokenCurrent(targetChatId, reqTok)) return
+        if (initResult.status === "error") {
+          repLoadAidMsg(targetChatId, loadMsgId, pickErr("img"), "error")
+          return
+        }
+
         if (initResult.status === "done") {
           repLoadAidMsg(
             targetChatId,
             loadMsgId,
             initResult.content,
-            chekError(initResult.content) ? "error" : "ok"
+            "ok"
           )
           return
         }
@@ -962,7 +976,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
           targetChatId,
           loadMsgId,
           responseText,
-          chekError(responseText) ? "error" : "ok"
+          "ok"
         )
         return
       }
@@ -981,7 +995,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         targetChatId,
         loadMsgId,
         responseText,
-        chekError(responseText) ? "error" : "ok"
+        "ok"
       )
     } catch (error) {
       if (!isReqTokenCurrent(targetChatId, reqTok)) return
@@ -993,7 +1007,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       repLoadAidMsg(
         targetChatId,
         loadMsgId,
-        pickErr(chatMode === "image" ? "img" : "api"),
+        pickErr(reqErrKind),
         "error"
       )
     } finally {
