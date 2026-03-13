@@ -72,14 +72,12 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
       return next
     })
   }, [])
-
+// msgs
   useEffect(() => {
     const nextSeen = new Map<string, string>()
 
     visibleChats.forEach((chat) => {
-      const lastAssistantMessage = [...chat.messages]
-        .reverse()
-        .find((message) => message.role === "assistant" && message.responseState !== "loading")
+      const lastAssistantMessage = [...chat.messages].reverse().find((message) => message.role === "assistant" && message.responseState !== "loading")
       nextSeen.set(chat.id, lastAssistantMessage?.id ?? "")
     })
 
@@ -89,7 +87,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
       return
     }
 
-    const prevSeen = lastSeenMsgByChatRef.current
+     const prevSeen = lastSeenMsgByChatRef.current
     if (prevSeen.size === 0) {
       lastSeenMsgByChatRef.current = nextSeen
       return
@@ -100,15 +98,14 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
     visibleChats.forEach((chat) => {
       const currentAssistantId = nextSeen.get(chat.id) ?? ""
       if (!currentAssistantId) return
-
-      const previousAssistantId = prevSeen.get(chat.id) ?? ""
+     const previousAssistantId = prevSeen.get(chat.id) ?? ""
       if (previousAssistantId === currentAssistantId) return
-      if (chat.id === curChatId) return
+       if (chat.id === curChatId) return
 
-      markChatHot(chat.id)
+        markChatHot(chat.id)
       hasNewInactiveMessage = true
     })
-
+/// notif settings
     if (hasNewInactiveMessage) {
       bleeps.notify?.play("toast-notify")
     }
@@ -119,15 +116,15 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   useEffect(() => {
     if (!curChatId) return
     setHotChatIds((prev) => {
-      if (!prev.has(curChatId)) return prev
-      const next = new Set(prev)
+              if (!prev.has(curChatId)) return prev
+        const next = new Set(prev)
       next.delete(curChatId)
       return next
     })
   }, [curChatId])
 
   const closeSideM = () => {
-    if (isMobile) {
+    if (isMobile) { // check if its mobile
       setOpenMobile(false)
     }
   }
@@ -153,7 +150,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
     deleteChat(chatId)
     setHotChatIds((prev) => {
       if (!prev.has(chatId)) return prev
-      const next = new Set(prev)
+       const next = new Set(prev)
       next.delete(chatId)
       return next
     })
@@ -181,9 +178,8 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
       renameCancel()
       return
     }
-
-    updateChat(chatId, { title: newTitle })
-    renameCancel()
+       updateChat(chatId, { title: newTitle })
+      renameCancel()
   }
 
   return (

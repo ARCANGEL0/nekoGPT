@@ -31,6 +31,12 @@ function getLang(className?: string): string {
   return got?.[1]?.toLowerCase() ?? "text"
 }
 
+function isCompactCodeBlock(rawCode: string): boolean {
+  if (!rawCode) return false
+  if (rawCode.includes("\n")) return false
+  return rawCode.length <= 72
+}
+
 export const AssistantMarkdown = memo(function AssistantMarkdown({ getjson, cpbtn_markdown }: AssistantMarkdownProps) {
   const parseMD = useMemo(() => getjson.replace(/\r\n/g, "\n"), [getjson])
 
@@ -87,6 +93,21 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ getjson, cpbt
 
       const lang = getLang(className)
       const rawCode = getMdText(children).replace(/\n$/, "")
+      const compactBlock = isCompactCodeBlock(rawCode)
+
+      if (compactBlock) {
+        return (
+          <button
+            type="button"
+            className="assistant-md-inline-code assistant-md-inline-code-btn"
+            onClick={() => void cpbtn_markdown(rawCode)}
+            aria-label={`Copy ${lang} snippet`}
+            title="Copy snippet"
+          >
+            {rawCode}
+          </button>
+        )
+      }
 
       return (
         <div className="cpbtn_markdown_wrap">

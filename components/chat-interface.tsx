@@ -14,6 +14,7 @@ import { FrameCorners, FrameLines, FrameNefrex, FrameUnderline, useBleeps } from
 import { NekoTxt } from "@/components/ui/neko-txt"
 import { SlowDecipherText } from "@/components/ui/slow-decipher-text"
 import { AssistantMarkdown } from "@/components/ui/assistant-markdown"
+import { getCachedImage, setCachedImage } from "@/lib/image-cache"
 import {
   nekoUnder1,
   nekoPanel1,
@@ -22,7 +23,9 @@ interface ChatInterfaceProps {
   chatId?: string
   chatMode?: ChatMode
 }
-const API_BASE_URL = "https://api.arcangelo.net"
+// configs and vars
+
+ const API_BASE_URL = "https://api.arcangelo.net"
 const LOADING_LABEL = "L o a d i n g . . ."
 const API_ENDPOINTS = {
   neko: "/neko",
@@ -33,8 +36,8 @@ const API_ENDPOINTS = {
 const DEBUG_REQUEST_LOGS = process.env.NODE_ENV !== "production"
 const PENDING_IMAGE_TASKS_KEY = "pending_image_tasks_v1"
 const IMAGE_TASK_POLL_MS = {
-  imagine: 6000,
-  multiEdit: 7000,
+        imagine: 6000,
+   multiEdit: 7000,
 } as const
 
 const errByKind: Record<"api" | "img" | "vis", string[]> = {
@@ -48,8 +51,7 @@ const errByKind: Record<"api" | "img" | "vis", string[]> = {
     "[❌] ERROR\n> Failed to fetch from API this round. Retry please.",
     "[❌] ERROR\n> API timeout. Another try should do it.",
     "[❌] ERROR\n> No clean response from API. Try again, chief.",
-  ],
-  img: [
+  ], img: [
     "[❌] ERROR\n> Image request failed on the server. Try again, will ya?",
     "[❌] ERROR\n> Could not finish your image task. Give me another shot.",
     "[❌] ERROR\n> Didn't got any image. Try regenerating again.",
@@ -610,26 +612,6 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     return payloadForLog
   }
 
-  const logReq = (
-    endpoint: string,
-    message: string,
-    chatName: string,
-    body: Record<string, unknown>,
-    targetChatId?: string
-  ) => {
-    if (!DEBUG_REQUEST_LOGS) return
-    const time = new Date().toISOString()
-    const { currentChatIndex, chatsWithCurrentFirst } = chatSnap(targetChatId)
-    console.log("-----------------------------")
-    console.log(`> SENDING REQUEST TO ENDPOINT: ${endpoint}`)
-    console.log(`> MESSAGE: ${message}`)
-    console.log(`> CHAT NAME: ${chatName}`)
-    console.log(`> CURRENT CHAT INDEX: ${currentChatIndex}`)
-    console.log("> CHATS (CURRENT FIRST):", chatsWithCurrentFirst)
-    console.log("> PAYLOAD:", logPayload(body))
-    console.log(`> TIME: ${time}`)
-    console.log("-----------------------------")
-  }
 
   const mkUrl = useCallback((endpoint: string) => `${API_BASE_URL}${endpoint}`, [])
 
@@ -640,9 +622,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     body: Record<string, unknown>,
     signal: AbortSignal,
     targetChatId?: string
-  ) => {
-    logReq(endpoint, message, chatName, body, targetChatId)
-    return fetch(mkUrl(endpoint), {
+  ) => {    return fetch(mkUrl(endpoint), {
       method: "POST",
       signal,
       headers: {
@@ -1371,31 +1351,14 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
   }, [bleeps, historyToastMessage, isHistoryToastExiting])
 
   const [cachedImgUrls, setCachedImgUrls] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    const cacheImages = async () => {
-      const newCache: Record<string, string> = {}
-      for (const msg of messages) {
-        const urls = getImgUrls(msg.content)
-        for (const url of urls) {
-          if (!imgCacheMap.current.has(url)) {
-            const b64 = await fetchImgToB64(url)
-            if (b64) {
-              imgCacheMap.current.set(url, b64)
-              newCache[url] = b64
-            }
-          } else {
-            newCache[url] = imgCacheMap.current.get(url)!
-          }
-        }
-      }
-      if (Object.keys(newCache).length > 0) {
-        setCachedImgUrls((prev) => ({ ...prev, ...newCache }))
-      }
-    }
-    cacheImages()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages])
+  const applyCachedImage = useCallback((url: string, dataUrl: string) => {
+    imgCacheMap.current.set(url, dataUrl)
+    setCachedImgUrls((prev) => {
+      if (prev[url] === dataUrl) return prev
+      return { ...prev, [url]: dataUrl }
+    })
+    void setCachedImage(url, dataUrl)
+  }, [setCachedImage])
 
   const getImgSrc = useCallback((url: string): string => {
     return cachedImgUrls[url] || url
@@ -1704,30 +1667,31 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
   }, [])
 
   const imageUrlToEditFile = useCallback(async (imageUrl: string): Promise<File> => {
-    const cached = imgCacheMap.current.get(imageUrl)
+    const cached = imgCacheMap.current.get(imageUrl) ?? await getCachedImage(imageUrl)
     if (cached) {
-      const file = dataUrlToFile(cached, imgName(imageUrl))
-      return file
+      applyCachedImage(imageUrl, cached)
+      return dataUrlToFile(cached, imgName(imageUrl))
     }
 
     const proxiedUrl = `/api/download-image?url=${encodeURIComponent(imageUrl)}`
-    const response = await fetch(proxiedUrl, { cache: "no-store" })
+    const response = await fetch(proxiedUrl, { cache: "force-cache" })
     if (!response.ok) {
       throw new Error(`Edit image download failed with status ${response.status}`)
     }
 
     const blob = await response.blob()
     const dataUrl = await blobToDataUrl(blob)
+    applyCachedImage(imageUrl, dataUrl)
     const fileNameFromHeader = nameFromDisposition(response.headers.get("content-disposition"))
     const fileName = fileNameFromHeader || imgName(imageUrl)
 
     return dataUrlToFile(dataUrl, fileName)
-  }, [blobToDataUrl, dataUrlToFile, imgName, nameFromDisposition])
+  }, [applyCachedImage, blobToDataUrl, dataUrlToFile, imgName, nameFromDisposition])
 
   const fetchImgToB64 = useCallback(async (url: string): Promise<string | null> => {
     try {
       const proxyUrl = `/api/download-image?url=${encodeURIComponent(url)}`
-      const res = await fetch(proxyUrl, { cache: "no-store" })
+      const res = await fetch(proxyUrl, { cache: "force-cache" })
       if (!res.ok) return null
       const blob = await res.blob()
       return blobToDataUrl(blob)
@@ -1736,12 +1700,43 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     }
   }, [blobToDataUrl])
 
+  const ensureCachedImage = useCallback(async (url: string, allowFetch = true): Promise<string | null> => {
+    const existing = imgCacheMap.current.get(url)
+    if (existing) return existing
+
+    const stored = await getCachedImage(url)
+    if (stored) {
+      applyCachedImage(url, stored)
+      return stored
+    }
+
+    if (!allowFetch) return null
+    const fetched = await fetchImgToB64(url)
+    if (!fetched) return null
+    applyCachedImage(url, fetched)
+    return fetched
+  }, [applyCachedImage, fetchImgToB64])
+
+  useEffect(() => {
+    let active = true
+    const cacheImages = async () => {
+      for (const msg of messages) {
+        const urls = getImgUrls(msg.content)
+        for (const url of urls) {
+          if (!active) return
+          await ensureCachedImage(url)
+        }
+      }
+    }
+    void cacheImages()
+    return () => {
+      active = false
+    }
+  }, [ensureCachedImage, messages])
+
   const dlImg = useCallback(async (imageUrl: string) => {
     try {
-      let src: string | null | undefined = imgCacheMap.current.get(imageUrl)
-      if (!src) {
-        src = await fetchImgToB64(imageUrl)
-      }
+      let src: string | null | undefined = await ensureCachedImage(imageUrl)
       if (!src) {
         src = imageUrl
       }
@@ -1771,7 +1766,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     } catch {
       showToast("Download failed")
     }
-  }, [imgName, showToast, fetchImgToB64])
+  }, [ensureCachedImage, imgName, showToast])
 
   const editImg = useCallback(async (imageUrl: string) => {
     try {

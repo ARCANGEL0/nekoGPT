@@ -12,6 +12,7 @@ const extFromMime = (mimeType: string): string => {
   if (lower.includes("image/svg+xml")) return ".svg"
   return ".png"
 }
+// fix to store cached images, i was saving the images URL raw, however the URLs would expire and would return only a blank frame on chat.
 
 const cleanName = (rawName: string): string => {
   const normalized = rawName
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
     if (len) {
       headers.set("Content-Length", len)
     }
-    headers.set("Cache-Control", "no-store")
+    headers.set("Cache-Control", "public, max-age=31536000, immutable")
 
     return new Response(up.body, {
       status: 200,

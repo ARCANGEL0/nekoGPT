@@ -3203,6 +3203,18 @@ text-shadow: 0 0 10px rgba(255, 234, 0, 0.692);
   font-family: var(--default-mono-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   font-size: 0.92em;
 }
+.assistant-md-inline-code-btn {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.assistant-md-inline-code-btn:hover {
+  border-color: rgba(145, 251, 255, 0.85);
+  background: rgba(3, 74, 102, 0.78);
+}
 .assistant-md-list-ul,
 .assistant-md-list-ol {
   padding-left: 1.15rem;
@@ -3271,6 +3283,28 @@ text-shadow: 0 0 10px rgba(255, 234, 0, 0.692);
 }
 .assistant-md-table tbody tr:nth-child(even) td {
   background: rgba(0, 34, 50, 0.24);
+}
+@media (max-width: 720px) {
+  .assistant-md-table-wrap {
+    overflow-x: hidden;
+  }
+
+  .assistant-md-table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .assistant-md-table th,
+  .assistant-md-table td {
+    padding: 0.5rem 0.55rem;
+    font-size: 0.88rem;
+    word-break: break-word;
+  }
+
+  .assistant-md-table th:nth-child(n+4),
+  .assistant-md-table td:nth-child(n+4) {
+    display: none;
+  }
 }
 .cpbtn_markdown_wrap {
   border: 1px solid rgba(78, 236, 255, 0.45);

@@ -148,7 +148,7 @@ interface UiProviderProps {
 export function useNekoUi() {
   const context = useContext(UiCtx)
   if (!context) {
-    throw new Error("useNekoUi must be used within NekoUiProvider.")
+    throw new Error("useNekoUi must be used within NekoUiProvider. /debug test")
   }
   return context
 }
