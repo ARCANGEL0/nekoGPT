@@ -1,4 +1,5 @@
 /*! tailwindcss v4.1.10 | MIT License | https://tailwindcss.com */
+@import "katex/dist/katex.min.css";
 @layer properties;
 @layer theme, base, components, utilities;
 @layer theme {
@@ -3138,6 +3139,115 @@ text-shadow: 0 0 10px rgba(255, 234, 0, 0.692);
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  line-height: 1.55;
+}
+
+.assistant-md-root .katex {
+  color: inherit;
+  line-height: 1.2;
+  vertical-align: baseline;
+}
+.assistant-md-root .katex,
+.assistant-md-root .katex svg,
+.assistant-md-root .katex img {
+  display: inline-block;
+  vertical-align: baseline;
+  margin: 0;
+}
+.assistant-md-root .katex .katex-html {
+  overflow: visible;
+}
+.assistant-md-root .katex table {
+  display: inline-table;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0;
+  vertical-align: baseline;
+}
+.assistant-md-root .katex th,
+.assistant-md-root .katex td {
+  padding: 0;
+  border: none;
+}
+.assistant-md-root .katex-display {
+  margin: 0.4rem 0;
+  padding: 0;
+  position: relative;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  display: block;
+  line-height: 1.2;
+  min-height: 0;
+  overflow: visible;
+  z-index: 1;
+}
+.assistant-md-katex-frame {
+  position: relative;
+  box-sizing: border-box;
+  color: inherit;
+}
+.assistant-md-katex-frame--display {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.5rem auto;
+  padding: 0.9rem 1.1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 120, 120, 0.7);
+  background: rgba(255, 20, 20, 0.03);
+  box-shadow: 0 0 24px rgba(255, 40, 40, 0.3);
+  overflow-x: auto;
+  overflow-y: visible;
+  text-align: center;
+  animation: latex-holo-flicker 3.6s ease-in-out infinite;
+}
+.assistant-md-katex-frame--display .katex-display {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  min-height: 0;
+  display: inline-block;
+  max-width: 100%;
+}
+.assistant-md-katex-frame--display .katex-display > .katex {
+  display: inline-block;
+  max-width: 100%;
+}
+.assistant-md-katex-frame--display::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255, 60, 60, 0) 0%, rgba(255, 120, 120, 0.25) 45%, rgba(255, 60, 60, 0) 70%);
+  opacity: 0.55;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: latex-holo-scan 4.8s linear infinite;
+}
+.assistant-md-root .katex .katex {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.assistant-md-latex-block .katex-display {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  margin: 0;
+  padding: 0;
+  display: inline-block;
+  max-width: 100%;
+}
+.assistant-md-latex-block .katex:not(.katex-display) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 .assistant-md-p {
   line-height: 1.55;
@@ -3229,6 +3339,7 @@ text-shadow: 0 0 10px rgba(255, 234, 0, 0.692);
 .assistant-md-list-ul li,
 .assistant-md-list-ol li {
   margin: 0.24rem 0;
+  line-height: 1.55;
 }
 .assistant-md-task-item {
   list-style: none;
@@ -3283,6 +3394,99 @@ text-shadow: 0 0 10px rgba(255, 234, 0, 0.692);
 }
 .assistant-md-table tbody tr:nth-child(even) td {
   background: rgba(0, 34, 50, 0.24);
+}
+.assistant-md-latex-block {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 120, 120, 0.65);
+  background: rgba(255, 20, 20, 0.04);
+  box-shadow: 0 0 20px rgba(255, 60, 60, 0.35);
+  margin: 0.55rem 0;
+  overflow: visible;
+  padding: 0 0.2rem;
+  min-height: 2.6rem;
+  animation: latex-holo-flicker 3.9s ease-in-out infinite;
+}
+.assistant-md-latex-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  border-bottom: 1px solid rgba(255, 120, 120, 0.4);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+}
+.assistant-md-latex-block__lang {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.assistant-md-latex-block__copy-btn {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid rgba(255, 120, 120, 0.6);
+  background: rgba(255, 20, 20, 0.08);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.assistant-md-latex-block__copy-btn:hover {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 40, 40, 0.18);
+}
+.assistant-md-latex-block__content {
+  padding: 0.75rem 0.95rem 0.9rem;
+  overflow: visible;
+}
+.assistant-md-latex-block__math {
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.98);
+  overflow: visible;
+  display: inline-flex;
+  align-items: flex-start;
+  padding: 0.1rem 0;
+}
+@keyframes latex-holo-flicker {
+  0% {
+    opacity: 0.96;
+    border-color: rgba(255, 120, 120, 0.6);
+    box-shadow: 0 0 18px rgba(255, 60, 60, 0.25);
+  }
+  12% {
+    opacity: 1;
+    border-color: rgba(255, 150, 150, 0.82);
+    box-shadow: 0 0 26px rgba(255, 60, 60, 0.38);
+  }
+  26% {
+    opacity: 0.9;
+    border-color: rgba(255, 110, 110, 0.62);
+    box-shadow: 0 0 16px rgba(255, 40, 40, 0.2);
+  }
+  52% {
+    opacity: 1;
+    border-color: rgba(255, 170, 170, 0.88);
+    box-shadow: 0 0 28px rgba(255, 70, 70, 0.4);
+  }
+  74% {
+    opacity: 0.92;
+    border-color: rgba(255, 120, 120, 0.7);
+    box-shadow: 0 0 20px rgba(255, 50, 50, 0.28);
+  }
+  100% {
+    opacity: 0.98;
+    border-color: rgba(255, 130, 130, 0.72);
+    box-shadow: 0 0 22px rgba(255, 60, 60, 0.3);
+  }
+}
+@keyframes latex-holo-scan {
+  0% {
+    transform: translateX(-35%);
+  }
+  100% {
+    transform: translateX(35%);
+  }
 }
 @media (max-width: 720px) {
   .assistant-md-table-wrap {

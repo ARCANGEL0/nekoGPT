@@ -2093,19 +2093,10 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                             </p>
                           ) : (
                             txtBody.length > 0 && (
-                              isUserMessage ? (
-                                <NekoTxt
-                                  as="p"
-                                  className="whitespace-pre-wrap break-words"
-                                  text={txtBody}
-                                  trigger={message.id}
-                                />
-                              ) : (
-                                <AssistantMarkdown
-                                  getjson={txtBody}
-                                  cpbtn_markdown={handleCopy}
-                                />
-                              )
+                              <AssistantMarkdown
+                                getjson={txtBody}
+                                cpbtn_markdown={handleCopy}
+                              />
                             )
                           )}
                           {inlineImgs.length > 0 && (
