@@ -1,21 +1,21 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { useChatStore } from "@/hooks/use-chat-store"
 import { Animator, FrameLines, FrameHeader } from "@/components/ui/neko-fx"
 import { NekoBtn } from "@/components/neko-btn"
-import { ImagePlus, PenLine, Waves, WavesLadder } from "lucide-react"
+import { Bug, BugOff, ImagePlus, PenLine } from "lucide-react"
 import { useNekoUi } from "@/components/neko-ui"
 import { NekoTxt } from "@/components/ui/neko-txt"
-import { SlowDecipherText } from "@/components/ui/slow-decipher-text"
+import { SlowDecipherText } from "@/components/ui/decipher"
 
 interface LayoutWrapperProps {
   children: React.ReactNode
 }
 
-export type ChatMode = "chat" | "image"
+export type ChatMode = "chat" | "image" | "dark"
 
 interface ChatSessCtx {
   curChatId?: string
@@ -42,7 +42,9 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const { animOn, toggleAnim } = useNekoUi()
   const [curChatId, setCurChatId] = useState<string | undefined>()
   const [chatMode, setChatMode] = useState<ChatMode>("chat")
-  const modeLabel = chatMode === "chat" ? "CHAT MODE" : "IMAGE MODE"
+  const prevAnimOnRef = useRef(animOn)
+  const modeLabel =
+    chatMode === "dark" ? "DARK MODE" : chatMode === "chat" ? "CHAT MODE" : "IMAGE MODE"
 
   const newChat = useCallback(() => {
     const newChat = getOrNew()
@@ -96,6 +98,34 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
     return () => window.removeEventListener("newChat", onNewChatEvt)
   }, [newChat])
 
+  useEffect(() => {
+    if (!animOn) {
+      if (chatMode !== "dark") {
+        setChatMode("dark")
+      }
+      return
+    }
+
+    if (chatMode === "dark") {
+      setChatMode("chat")
+    }
+  }, [animOn, chatMode])
+
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    const root = document.documentElement
+    if (!animOn) {
+      root.classList.add("neko-darkmode")
+    } else {
+      root.classList.remove("neko-darkmode")
+    }
+
+    if (prevAnimOnRef.current && !animOn) {
+      window.dispatchEvent(new CustomEvent("neko-darkmode-toast"))
+    }
+    prevAnimOnRef.current = animOn
+  }, [animOn])
+
   const pickChat = (chatId: string) => {
     setCurChatId(chatId)
   }
@@ -147,9 +177,9 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
                           }`}
                         >
                           {animOn ? (
-                            <Waves className="h-4 w-4" />
+                            <BugOff className="h-4 w-4" />
                           ) : (
-                            <WavesLadder className="h-4 w-4" />
+                            <Bug className="h-4 w-4" />
                           )}
                         </NekoBtn>
                       <div className="ml-3 flex min-w-0 flex-col sm:ml-4">
@@ -170,38 +200,40 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
                           </span>
                         </div>
                       </div>
-                      <div className="ml-auto flex items-center gap-1 sm:ml-4 sm:gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setChatMode("chat")}
-                          aria-label="Chat mode"
-                          title="Chat mode"
-                          className={`modetog relative flex h-8 w-8 shrink-0 items-center justify-center px-0 sm:h-9 sm:w-10 ${
-                            chatMode === "chat" ? "togon" : "togoff"
-                          }`}
-                        >
-                          <FrameLines
-                            className="togframe pointer-events-none absolute inset-0"
-                            padding={1}
-                          />
-                          <PenLine className="relative z-10 h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setChatMode("image")}
-                          aria-label="Image mode"
-                          title="Image mode"
-                          className={`modetog relative flex h-8 w-8 shrink-0 items-center justify-center px-0 transition-colors sm:h-9 sm:w-10 ${
-                            chatMode === "image" ? "togon" : "togoff"
-                          }`}
-                        >
-                          <FrameLines
-                            className="togframe pointer-events-none absolute inset-0"
-                            padding={1}
-                          />
-                          <ImagePlus className="relative z-10 h-4 w-4" />
-                        </button>
-                      </div>
+                      {chatMode !== "dark" && (
+                        <div className="ml-auto flex items-center gap-1 sm:ml-4 sm:gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setChatMode("chat")}
+                            aria-label="Chat mode"
+                            title="Chat mode"
+                            className={`modetog relative flex h-8 w-8 shrink-0 items-center justify-center px-0 sm:h-9 sm:w-10 ${
+                              chatMode === "chat" ? "togon" : "togoff"
+                            }`}
+                          >
+                            <FrameLines
+                              className="togframe pointer-events-none absolute inset-0"
+                              padding={1}
+                            />
+                            <PenLine className="relative z-10 h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setChatMode("image")}
+                            aria-label="Image mode"
+                            title="Image mode"
+                            className={`modetog relative flex h-8 w-8 shrink-0 items-center justify-center px-0 transition-colors sm:h-9 sm:w-10 ${
+                              chatMode === "image" ? "togon" : "togoff"
+                            }`}
+                          >
+                            <FrameLines
+                              className="togframe pointer-events-none absolute inset-0"
+                              padding={1}
+                            />
+                            <ImagePlus className="relative z-10 h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
                      
                     </div>
                   </div>

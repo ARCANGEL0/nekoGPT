@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 import {
   nekoUnder1,
   nekoPanel1,
-} from "@/components/ui/neko-frame-settings"
+} from "@/components/ui/frames"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {

@@ -8,7 +8,7 @@ import { FrameBase } from "@/components/ui/neko-fx"
 import {
   nekoCtrl1,
   nekoPanel1,
-} from "@/components/ui/neko-frame-settings"
+} from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function Select({

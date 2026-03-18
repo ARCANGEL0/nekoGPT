@@ -1,6 +1,6 @@
 import { FrameBase } from "@/components/ui/neko-fx"
 
-import { nekoField1 } from "@/components/ui/neko-frame-settings"
+import { nekoField1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {

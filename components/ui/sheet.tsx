@@ -5,7 +5,7 @@ import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 import { FrameBase } from "@/components/ui/neko-fx"
 
-import { nekoPanel1 } from "@/components/ui/neko-frame-settings"
+import { nekoPanel1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {

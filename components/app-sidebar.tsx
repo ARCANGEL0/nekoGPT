@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/sidebar"
 import { MessageSquare, Pencil, Trash2 } from "lucide-react"
 import { useChatStore } from "@/hooks/use-chat-store"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { ScrollArea } from "@/components/ui/scrolview"
 import { Input } from "@/components/ui/input"
 import { Animator, FrameNefrex, FrameUnderline, useBleeps } from "@/components/ui/neko-fx"
 import { NekoBtn } from "@/components/neko-btn"
@@ -25,7 +25,7 @@ import {
   nekoUnder1,
   nekoCard1,
   nekoPanel1,
-} from "@/components/ui/neko-frame-settings"
+} from "@/components/ui/frames"
 
 interface AppSidebarProps {
   curChatId?: string
@@ -195,7 +195,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
           width={96}
           height={96}
           unoptimized
-          className="relative z-10 mx-auto h-24 w-24 bg-transparent object-contain"
+          className="nekoLogo relative z-10 mx-auto h-24 w-24 bg-transparent object-contain"
         />
 
         <div className="relative z-10 flex h-full flex-col content-center justify-center gap-0 justify-items-center">

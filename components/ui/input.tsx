@@ -3,7 +3,7 @@
 import * as React from "react"
 import { FrameBase } from "@/components/ui/neko-fx"
 
-import { nekoField1 } from "@/components/ui/neko-frame-settings"
+import { nekoField1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(

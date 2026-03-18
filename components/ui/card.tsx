@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Animator, FrameUnderline } from "@/components/ui/neko-fx"
 
-import { nekoUnder1 } from "@/components/ui/neko-frame-settings"
+import { nekoUnder1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function Card({ className, children, ...props }: React.ComponentProps<"div">) {

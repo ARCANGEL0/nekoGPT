@@ -6,7 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { Animator, FrameBase, FrameOctagon, useBleeps } from "@/components/ui/neko-fx"
 
 import { NekoTxt } from "@/components/ui/neko-txt"
-import { nekoCtrl1 } from "@/components/ui/neko-frame-settings"
+import { nekoCtrl1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(

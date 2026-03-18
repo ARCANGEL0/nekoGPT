@@ -5,7 +5,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { FrameUnderline } from "@/components/ui/neko-fx"
 
 import { NekoTxt } from "@/components/ui/neko-txt"
-import { nekoUnder1 } from "@/components/ui/neko-frame-settings"
+import { nekoUnder1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function TooltipProvider({

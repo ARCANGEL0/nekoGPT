@@ -207,6 +207,13 @@ export function NekoUiProvider({ children }: UiProviderProps) {
     [animOn]
   )
 
+  const gridLineColor = animOn
+    ? "rgba(23, 233, 255, 0.14)"
+    : "rgba(255, 52, 90, 0.18)"
+  const movingLineColor = animOn
+    ? "rgba(0, 215, 255, 0.08)"
+    : "rgba(255, 52, 90, 0.12)"
+
   return (
     <UiCtx.Provider value={ctxVal}>
       <AnimatorGeneralProvider
@@ -230,7 +237,7 @@ export function NekoUiProvider({ children }: UiProviderProps) {
             <UiBleepBridge />
             <div aria-hidden className="bkgd">
               <GridLines
-                lineColor="rgba(23, 233, 255, 0.14)"
+                lineColor={gridLineColor}
                 lineWidth={1}
                 distance={42}
                 horizontalLineDash={[2, 8]}
@@ -238,7 +245,7 @@ export function NekoUiProvider({ children }: UiProviderProps) {
               />
               {animOn && (
                 <MovingLines
-                  lineColor="rgba(0, 215, 255, 0.08)"
+                  lineColor={movingLineColor}
                   lineWidth={1}
                   distance={136}
                   sets={2}

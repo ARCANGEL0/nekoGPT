@@ -12,13 +12,13 @@ import { Message, type MessageRevision } from "@/lib/chat-store"
 import { NekoBtn } from "@/components/neko-btn"
 import { FrameCorners, FrameLines, FrameNefrex, FrameUnderline, useBleeps } from "@/components/ui/neko-fx"
 import { NekoTxt } from "@/components/ui/neko-txt"
-import { SlowDecipherText } from "@/components/ui/slow-decipher-text"
+import { SlowDecipherText } from "@/components/ui/decipher"
 import { AssistantMarkdown } from "@/components/ui/assistant-markdown"
 import { getCachedImage, setCachedImage } from "@/lib/image-cache"
 import {
   nekoUnder1,
   nekoPanel1,
-} from "@/components/ui/neko-frame-settings"
+} from "@/components/ui/frames"
 interface ChatInterfaceProps {
   chatId?: string
   chatMode?: ChatMode
@@ -29,6 +29,7 @@ interface ChatInterfaceProps {
 const LOADING_LABEL = "L o a d i n g . . ."
 const API_ENDPOINTS = {
   neko: "/neko",
+  dark: "/neko_dark",
   imagine: "/imagine",
   multiedit: "/multiEdit",
   vision: "/neko_vision"
@@ -149,11 +150,47 @@ const usrBubbleStyle = {
   "--arwes-frames-line-filter": "drop-shadow(0 0 10px rgba(100, 246, 255, 0.26))",
 } as CSSProperties
 
+const aidBubbleStyleDark = {
+  "--arwes-frames-bg-color": "rgba(38, 6, 12, 0.82)",
+  "--arwes-frames-line-color": "rgba(255, 92, 124, 0.92)",
+  "--arwes-frames-bg-filter": "drop-shadow(0 0 10px rgba(255, 70, 104, 0.22))",
+  "--arwes-frames-line-filter": "drop-shadow(0 0 12px rgba(255, 80, 112, 0.38))",
+} as CSSProperties
+
+const usrBubbleStyleDark = {
+  "--arwes-frames-bg-color": "rgba(46, 8, 16, 0.58)",
+  "--arwes-frames-line-color": "rgba(255, 118, 146, 0.92)",
+  "--arwes-frames-bg-filter": "drop-shadow(0 0 10px rgba(255, 84, 116, 0.2))",
+  "--arwes-frames-line-filter": "drop-shadow(0 0 12px rgba(255, 102, 132, 0.36))",
+} as CSSProperties
+
+const errBubbleStyleDark = {
+  "--arwes-frames-bg-color": "rgba(64, 26, 4, 0.9)",
+  "--arwes-frames-line-color": "rgba(255, 196, 82, 0.98)",
+  "--arwes-frames-bg-filter": "drop-shadow(0 0 12px rgba(255, 170, 64, 0.26))",
+  "--arwes-frames-line-filter": "drop-shadow(0 0 16px rgba(255, 196, 82, 0.5))",
+} as CSSProperties
+
 const actionCounterStyle = {
   "--arwes-frames-bg-color": "rgba(5, 29, 40, 0.5)",
   "--arwes-frames-line-color": "rgba(109, 248, 255, 0.78)",
   "--arwes-frames-bg-filter": "drop-shadow(0 0 8px rgba(0, 230, 255, 0.14))",
   "--arwes-frames-line-filter": "drop-shadow(0 0 10px rgba(104, 243, 255, 0.26))",
+} as CSSProperties
+
+const aidActionStyleDark = {
+  "--arwes-frames-bg-color": "rgba(66, 28, 6, 0.72)",
+  "--arwes-frames-line-color": "rgba(255, 200, 96, 0.98)",
+  "--arwes-frames-deco-color": "rgba(255, 220, 140, 0.92)",
+  "--arwes-frames-bg-filter": "drop-shadow(0 0 10px rgba(255, 170, 70, 0.22))",
+  "--arwes-frames-line-filter": "drop-shadow(0 0 12px rgba(255, 196, 90, 0.4))",
+} as CSSProperties
+
+const actionCounterStyleDark = {
+  "--arwes-frames-bg-color": "rgba(58, 24, 6, 0.62)",
+  "--arwes-frames-line-color": "rgba(255, 186, 88, 0.92)",
+  "--arwes-frames-bg-filter": "drop-shadow(0 0 8px rgba(255, 168, 72, 0.18))",
+  "--arwes-frames-line-filter": "drop-shadow(0 0 10px rgba(255, 190, 94, 0.34))",
 } as CSSProperties
 
 const getImgUrls = (content: string): string[] => {
@@ -217,7 +254,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
   const [isHistoryToastExiting, setIsHistoryToastExiting] = useState(false)
   const [isGalleryOpen, setIsGalleryOpen] = useState(false)
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0)
-  const maxFiles = chatMode === "image" ? 4 : 1
+  const maxFiles = chatMode === "image" ? 4 : chatMode === "dark" ? 0 : 1
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
@@ -242,6 +279,8 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     vis: -1,
   })
   const imgCacheMap = useRef<Map<string, string>>(new Map())
+  const actionFrameStyle = chatMode === "dark" ? aidActionStyleDark : aidActionStyle
+  const counterFrameStyle = chatMode === "dark" ? actionCounterStyleDark : actionCounterStyle
 
   const currentChat = useMemo(
     () => (chatId ? chats.find((chat) => chat.id === chatId) : undefined),
@@ -960,6 +999,44 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     startPendingImageTask(task.key)
   }, [savePendingImageTasks, startPendingImageTask])
 
+  const darkai = async (
+    targetChatId: string,
+    prompt: string,
+    chatName: string,
+    signal: AbortSignal
+  ): Promise<string> => {
+    const response = await reqJson(
+      API_ENDPOINTS.dark,
+      prompt,
+      chatName,
+      { message: prompt },
+      signal,
+      targetChatId
+    )
+
+    const rawText = await response.text()
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 220)}`)
+    }
+
+    const parsed = rtjson(rawText)
+    if (parsed) {
+      const candidate = parsed.response
+
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        return candidate
+      }
+    }
+
+    const trimmed = rawText.trim()
+    if (trimmed.length > 0) {
+      return trimmed
+    }
+
+    throw new Error("No valid response content from DARK API.")
+  }
+
   const nekoai = async (
     targetChatId: string,
     prompt: string,
@@ -1058,7 +1135,8 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     }
   ) => {
     const reqTok = nextReqToken(targetChatId)
-    const hasVisInput = chatMode !== "image" && filesIn.length > 0
+    const safeFiles = chatMode === "dark" ? [] : filesIn
+    const hasVisInput = chatMode === "chat" && safeFiles.length > 0
     const reqErrKind: "api" | "img" | "vis" = chatMode === "image"
       ? "img"
       : hasVisInput
@@ -1083,8 +1161,26 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     })
 
     try {
+      if (chatMode === "dark") {
+        const responseText = await darkai(
+          targetChatId,
+          prompt,
+          chatName,
+          ctrl.signal
+        )
+
+        if (!isReqTokenCurrent(targetChatId, reqTok)) return
+        repLoadAidMsg(
+          targetChatId,
+          loadMsgId,
+          responseText,
+          "ok"
+        )
+        return
+      }
+
       if (chatMode === "image") {
-        const imgs = filesIn.slice(0, 4)
+        const imgs = safeFiles.slice(0, 4)
         let initResult: ImageTaskInit = { status: "error" }
         if (imgs.length === 0) {
           try {
@@ -1148,7 +1244,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         return
       }
 
-      const imgFile = filesIn[0]
+      const imgFile = safeFiles[0]
       const isVis = Boolean(imgFile)
 
       if (!isVis) {
@@ -1456,7 +1552,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     if (!chatId || isRequestInFlight) return
     const prompt = inputValueRef.current
     if (!prompt.trim()) return
-    const filesIn = attachments.slice(0, maxFiles)
+    const filesIn = chatMode === "dark" ? [] : attachments.slice(0, maxFiles)
 
     if (filesIn.some((file) => !okImgFile(file))) {
       showToast("Only image files are supported")
@@ -1557,6 +1653,17 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
       }, 260)
     }, 1850)
   }, [])
+
+  useEffect(() => {
+    const onDarkToast = () => {
+      showToast("[U n l o c k e d]")
+    }
+
+    window.addEventListener("neko-darkmode-toast", onDarkToast)
+    return () => {
+      window.removeEventListener("neko-darkmode-toast", onDarkToast)
+    }
+  }, [showToast])
 
   const copyTxt = useCallback(async (content: string): Promise<boolean> => {
     try {
@@ -1840,6 +1947,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
 
   const onFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return
+    if (chatMode === "dark") {
+      showToast("Not available under DARK MODE.")
+      e.target.value = ""
+      return
+    }
 
     const files = Array.from(e.target.files)
     const imgs = files.filter((file) => okImgFile(file))
@@ -1896,12 +2008,14 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
   }
 
   const hasTxt = hasInput
-  const noAttach = attachments.length >= maxFiles || isRequestInFlight
-  const attachWhy = isRequestInFlight
-    ? "Request in progress..."
-    : attachments.length >= maxFiles
-      ? "Maximum files attached..."
-      : null
+  const noAttach = chatMode === "dark" || attachments.length >= maxFiles || isRequestInFlight
+  const attachWhy = chatMode === "dark"
+    ? "Not available under DARK MODE."
+    : isRequestInFlight
+      ? "Request in progress..."
+      : attachments.length >= maxFiles
+        ? "Maximum files attached..."
+        : null
   const noSend = isRequestInFlight || !hasTxt
   const sendWhy = !hasTxt
     ? "Please type something"
@@ -2050,11 +2164,19 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                 const canCopyText = txtBody.trim().length > 0
                 const showImageActions = inlineImgs.length > 0 && txtBody.length === 0
                 const showRevisionNav = !isUserMessage && revisionCount > 1
-                const bubbleStyle = isUserMessage
-                  ? usrBubbleStyle
-                  : isErrAid
-                    ? errBubbleStyle
-                    : aidBubbleStyle
+                const isDarkMode = chatMode === "dark"
+                const bubbleStyle = isDarkMode
+                  ? isUserMessage
+                    ? usrBubbleStyleDark
+                    : isErrAid
+                      ? errBubbleStyleDark
+                      : aidBubbleStyleDark
+                  : isUserMessage
+                    ? usrBubbleStyle
+                    : isErrAid
+                      ? errBubbleStyle
+                      : aidBubbleStyle
+                const bubbleClass = `chat-bubble ${isUserMessage ? "chat-bubble-user" : isErrAid ? "chat-bubble-error" : "chat-bubble-assistant"}`
 
                 return (
                   <div
@@ -2064,7 +2186,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                   >
                     <div className="w-full max-w-[92%] sm:max-w-[82%] md:max-w-[72%]">
                       <div
-                        className={`relative p-4 ${
+                        className={`${bubbleClass} relative p-4 ${
                           isUserMessage
                             ? "border border-cyan-300/50"
                             : isErrAid
@@ -2078,7 +2200,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                             className="pointer-events-none absolute inset-0 z-[1]"
                           />
                         <div
-                          className={`relative z-[2] ${
+                          className={`chat-bubble-text relative z-[2] ${
                             isUserMessage ? "text-cyan-50" : "text-cyan-100"
                           }`}
                         >
@@ -2151,11 +2273,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                         <div className="mt-2 flex justify-end gap-2">
                           <button
                             type="button"
-                            className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
+                            className="chat-action-btn relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
                             onClick={() => handleCopy(message.content)}
                           >
                             <FrameCorners
-                              style={aidActionStyle}
+                              style={actionFrameStyle}
                               className="pointer-events-none absolute inset-0"
                               padding={1}
                             />
@@ -2175,11 +2297,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                           {showImageActions ? (
                             <button
                               type="button"
-                              className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
+                              className="chat-action-btn relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
                               onClick={() => dlImg(inlineImgs[0])}
                             >
                               <FrameCorners
-                                style={aidActionStyle}
+                                style={actionFrameStyle}
                                 className="pointer-events-none absolute inset-0"
                                 padding={1}
                               />
@@ -2194,11 +2316,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                           ) : canCopyText ? (
                             <button
                               type="button"
-                              className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
+                              className="chat-action-btn relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100"
                               onClick={() => handleCopy(message.content)}
                             >
                               <FrameCorners
-                                style={aidActionStyle}
+                                style={actionFrameStyle}
                                 className="pointer-events-none absolute inset-0"
                                 padding={1}
                               />
@@ -2214,12 +2336,12 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                           
                           <button
                             type="button"
-                            className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+                            className="chat-action-btn relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
                             onClick={() => regenMsg(message.id)}
                             disabled={isRequestInFlight || message.id !== lastAidId}
                           >
                             <FrameCorners
-                              style={aidActionStyle}
+                              style={actionFrameStyle}
                               className="pointer-events-none absolute inset-0"
                               padding={1}
                             />
@@ -2235,12 +2357,12 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                           {showImageActions && (
                             <button
                               type="button"
-                              className="relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+                              className="chat-action-btn relative inline-flex h-8 items-center gap-2 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
                               onClick={() => editImg(inlineImgs[0])}
                               disabled={isRequestInFlight}
                             >
                               <FrameCorners
-                                style={aidActionStyle}
+                                style={actionFrameStyle}
                                 className="pointer-events-none absolute inset-0"
                                 padding={1}
                               />
@@ -2258,13 +2380,13 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
-                                className="relative inline-flex h-8 w-8 items-center justify-center text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="chat-action-btn chat-action-nav relative inline-flex h-8 w-8 items-center justify-center text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
                                 onClick={() => navigateMsgRevision(chatId, message.id, "prev")}
                                 disabled={activeRevisionIndex === 0}
                                 aria-label="Previous generation"
                               >
                                 <FrameCorners
-                                  style={actionCounterStyle}
+                                  style={counterFrameStyle}
                                   className="pointer-events-none absolute inset-0"
                                   padding={1}
                                 />
@@ -2272,21 +2394,21 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                               </button>
                               <div className="relative inline-flex h-8 min-w-[56px] items-center justify-center px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-200">
                                 <FrameCorners
-                                  style={actionCounterStyle}
+                                  style={counterFrameStyle}
                                   className="pointer-events-none absolute inset-0"
                                   padding={1}
                                 />
-                                <span className="relative z-[2]">{activeRevisionIndex + 1}/{revisionCount}</span>
+                                <span className="chat-action-counter relative z-[2]">{activeRevisionIndex + 1}/{revisionCount}</span>
                               </div>
                               <button
                                 type="button"
-                                className="relative inline-flex h-8 w-8 items-center justify-center text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="chat-action-btn chat-action-nav relative inline-flex h-8 w-8 items-center justify-center text-cyan-300 transition-colors hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
                                 onClick={() => navigateMsgRevision(chatId, message.id, "next")}
                                 disabled={activeRevisionIndex >= revisionCount - 1}
                                 aria-label="Next generation"
                               >
                                 <FrameCorners
-                                  style={actionCounterStyle}
+                                  style={counterFrameStyle}
                                   className="pointer-events-none absolute inset-0"
                                   padding={1}
                                 />
@@ -2318,6 +2440,8 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                 placeholder={
                   chatMode === "image"
                     ? "Describe your image request..."
+                    : chatMode === "dark"
+                      ? "[DARK NEKO :: No censorship active] Type your message..."
                     : "Type your message here..."
                 }
                 className={`chatboxshell relative z-[2] min-h-[92px] resize-none bg-transparent pr-24 text-cyan-100 placeholder-cyan-400/50 ${
@@ -2331,6 +2455,7 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                   multiple={chatMode === "image"}
                   accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
                   onChange={onFilePick}
+                  disabled={chatMode === "dark"}
                   className="hidden"
                 />
 

@@ -4,7 +4,7 @@ import * as React from "react"
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import { FrameBase } from "@/components/ui/neko-fx"
 
-import { nekoField1 } from "@/components/ui/neko-frame-settings"
+import { nekoField1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function ScrollArea({

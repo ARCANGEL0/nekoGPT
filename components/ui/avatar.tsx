@@ -4,7 +4,7 @@ import * as React from "react"
 import * as AvatarPrimitive from "@radix-ui/react-avatar"
 import { FrameBase } from "@/components/ui/neko-fx"
 
-import { nekoCtrl1 } from "@/components/ui/neko-frame-settings"
+import { nekoCtrl1 } from "@/components/ui/frames"
 import { cn } from "@/lib/utils"
 
 function Avatar({
