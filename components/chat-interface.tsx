@@ -27,8 +27,8 @@ interface ChatInterfaceProps {
 
  const API_BASE_URL = "https://api.arcangelo.net"
 const LOADING_LABEL = "L o a d i n g . . ."
-const DARK_WAIT_LABEL = "Please wait"
-const DARK_WAIT_ALT_LABEL = "Loading . . . ."
+const DrkmodeWaitTxt = "Please wait"
+const DrkmodeLoadTxt = "Loading . . . ."
 const API_ENDPOINTS = {
   neko: "/neko",
   dark: "/neko_dark",
@@ -38,7 +38,7 @@ const API_ENDPOINTS = {
 } as const
 const DEBUG_REQUEST_LOGS = process.env.NODE_ENV !== "production"
 const PENDING_IMAGE_TASKS_KEY = "pending_image_tasks_v1"
-const DARK_TASK_POLL_MS = 2200
+const drkPollMs = 2200
 const IMAGE_TASK_POLL_MS = {
         imagine: 6000,
    multiEdit: 7000,
@@ -1085,15 +1085,15 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     excludedMessageIds?: Set<string>
   ): Promise<string> => {
     const conversation = nekoMsgs(targetChatId, prompt, excludedMessageIds)
-    let nextTaskId: string | undefined
+    let taskId: string | undefined
     let isPolling = false
 
     while (true) {
       const requestBody: Record<string, unknown> = isPolling
-        ? { taskId: nextTaskId }
+        ? { taskId }
         : { conversation }
 
-      const response = await reqJson(
+      const getRes = await reqJson(
         API_ENDPOINTS.dark,
         prompt,
         chatName,
@@ -1102,14 +1102,14 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         targetChatId
       )
 
-      const rawText = await response.text()
+      const rawText = await getRes.text()
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 220)}`)
+      if (!getRes.ok) {
+        throw new Error(`HTTP ${getRes.status}: ${rawText.slice(0, 220)}`)
       }
 
-      const parsed = rtjson(rawText)
-      if (!parsed) {
+      const darkparse = rtjson(rawText)
+      if (!darkparse) {
         const trimmed = rawText.trim()
         if (trimmed.length > 0) {
           return trimmed
@@ -1117,82 +1117,82 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
         throw new Error("No valid response content from DARK API.")
       }
 
-      const parsedStatus = parsed.status
-      const normalizedStatus =
-        typeof parsedStatus === "string" ? parsedStatus.toLowerCase() : ""
-      const responseText =
-        typeof parsed.response === "string" ? parsed.response.trim() : ""
-      const errorText =
-        typeof parsed.error === "string"
-          ? parsed.error.trim()
-          : typeof parsed.message === "string"
-            ? parsed.message.trim()
+      const darkstat = darkparse.status
+      const darkstatTxt =
+        typeof darkstat === "string" ? darkstat.toLowerCase() : ""
+      const darktxt =
+        typeof darkparse.response === "string" ? darkparse.response.trim() : ""
+      const darkerr =
+        typeof darkparse.error === "string"
+          ? darkparse.error.trim()
+          : typeof darkparse.message === "string"
+            ? darkparse.message.trim()
             : ""
-      const responseComplete =
-        parsedStatus === true ||
-        normalizedStatus === "completed" ||
-        normalizedStatus === "done" ||
-        normalizedStatus === "success"
-      const responsePending =
-        normalizedStatus === "pending" ||
-        normalizedStatus === "processing" ||
-        normalizedStatus === "queued" ||
-        normalizedStatus === "running" ||
-        (parsedStatus === false && !errorText)
-      const responseErrored =
-        normalizedStatus === "error" ||
-        normalizedStatus === "failed"
-      const parsedTaskId =
-        typeof parsed.taskId === "string" && parsed.taskId.trim().length > 0
-          ? parsed.taskId
-          : typeof parsed.task_id === "string" && parsed.task_id.trim().length > 0
-            ? parsed.task_id
+      const isDone =
+        darkstat === true ||
+        darkstatTxt === "completed" ||
+        darkstatTxt === "done" ||
+        darkstatTxt === "success"
+      const isWaitin =
+        darkstatTxt === "pending" ||
+        darkstatTxt === "processing" ||
+        darkstatTxt === "queued" ||
+        darkstatTxt === "running" ||
+        (darkstat === false && !darkerr)
+      const isDarkErr =
+        darkstatTxt === "error" ||
+        darkstatTxt === "failed"
+      const gotTaskId =
+        typeof darkparse.taskId === "string" && darkparse.taskId.trim().length > 0
+          ? darkparse.taskId
+          : typeof darkparse.task_id === "string" && darkparse.task_id.trim().length > 0
+            ? darkparse.task_id
           : undefined
 
-      if (parsedTaskId) {
-        nextTaskId = parsedTaskId ?? nextTaskId
+      if (gotTaskId) {
+        taskId = gotTaskId ?? taskId
         updateChat(targetChatId, {
           darkJobId: undefined,
-          darkTaskId: nextTaskId,
+          darkTaskId: taskId,
         })
-        setLoadAidMsgText(targetChatId, loadMsgId, DARK_WAIT_LABEL)
+        setLoadAidMsgText(targetChatId, loadMsgId, DrkmodeWaitTxt)
       }
 
-      if (responseComplete && responseText.length > 0) {
-        updateChat(targetChatId, {
-          darkJobId: undefined,
-          darkTaskId: undefined,
-        })
-        return responseText
-      }
-
-      if (responseErrored || (errorText.length > 0 && !responsePending)) {
+      if (isDone && darktxt.length > 0) {
         updateChat(targetChatId, {
           darkJobId: undefined,
           darkTaskId: undefined,
         })
-        throw new Error(errorText || "DARK API returned an error.")
+        return darktxt
       }
 
-      if (!isPolling && parsedTaskId) {
+      if (isDarkErr || (darkerr.length > 0 && !isWaitin)) {
+        updateChat(targetChatId, {
+          darkJobId: undefined,
+          darkTaskId: undefined,
+        })
+        throw new Error(darkerr || "DARK API returned an error.")
+      }
+
+      if (!isPolling && gotTaskId) {
         isPolling = true
-        await waitForTaskPoll(signal, DARK_TASK_POLL_MS)
+        await waitForTaskPoll(signal, drkPollMs)
         continue
       }
 
-      if (!nextTaskId) {
-        if (responseText.length > 0) {
+      if (!taskId) {
+        if (darktxt.length > 0) {
           updateChat(targetChatId, {
             darkJobId: undefined,
             darkTaskId: undefined,
           })
-          return responseText
+          return darktxt
         }
         throw new Error("DARK API did not return a task id.")
       }
 
       isPolling = true
-      await waitForTaskPoll(signal, DARK_TASK_POLL_MS)
+      await waitForTaskPoll(signal, drkPollMs)
     }
   }
 
@@ -2339,10 +2339,10 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                 const showImageActions = inlineImgs.length > 0 && txtBody.length === 0
                 const showRevisionNav = !isUserMessage && revisionCount > 1
                 const isDarkMode = chatMode === "dark"
-                const isDarkQueueWait =
+                const isDrkWait =
                   isDarkMode &&
                   isLoadAid &&
-                  message.content.trim().toLowerCase() === DARK_WAIT_LABEL.toLowerCase()
+                  message.content.trim().toLowerCase() === DrkmodeWaitTxt.toLowerCase()
                 const bubbleStyle = isDarkMode
                   ? isUserMessage
                     ? usrBubbleStyleDark
@@ -2384,11 +2384,11 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                         >
                           {isLoadAid ? (
                             <p className="relative z-[2] text-decipher loadingtxt text-cyan-200">
-                              {isDarkQueueWait ? (
+                              {isDrkWait ? (
                                 <LoadingStatusText
                                   messageId={message.id}
-                                  primaryText={DARK_WAIT_LABEL}
-                                  alternateText={DARK_WAIT_ALT_LABEL}
+                                  primaryText={DrkmodeWaitTxt}
+                                  alternateText={DrkmodeLoadTxt}
                                 />
                               ) : (
                                 <SlowDecipherText
