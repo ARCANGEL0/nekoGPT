@@ -315,6 +315,84 @@
   color: rgba(255, 224, 150, 0.98);
   text-shadow: 0 0 8px rgba(255, 196, 96, 0.45);
 }
+.sidebar-dark-locked .newChat-btn {
+  opacity: 0.38;
+  filter: grayscale(0.3);
+}
+.sidebar-chat-temp .itemshape {
+  text-shadow: 0 0 10px rgba(255, 86, 118, 0.45);
+}
+.sidebar-chat-unavailable {
+  position: relative;
+  animation: sidebar-unavailable-jitter 1.9s steps(2, end) infinite;
+}
+.sidebar-chat-unavailable::after {
+  content: "[ OFFLINE ]";
+  position: absolute;
+  right: 0.9rem;
+  top: 50%;
+  z-index: 4;
+  transform: translateY(-50%);
+  color: rgba(255, 108, 136, 0.72);
+  font-size: 0.46rem;
+  letter-spacing: 0.28em;
+  text-shadow: 0 0 8px rgba(255, 84, 116, 0.34);
+  pointer-events: none;
+}
+.sidebar-unavailable-frame {
+  filter:
+    grayscale(0.15)
+    drop-shadow(0 0 10px rgba(255, 70, 104, 0.14));
+}
+.sidebar-unavailable-btn {
+  opacity: 0.28;
+  filter: saturate(0.55) blur(0.15px);
+  pointer-events: none;
+  animation: sidebar-unavailable-flicker 1.5s linear infinite;
+}
+.sidebar-unavailable-btn .frame1 {
+  opacity: 0.32;
+}
+.sidebar-unavailable-btn span,
+.sidebar-unavailable-btn svg {
+  color: rgba(255, 102, 132, 0.5);
+}
+@keyframes sidebar-unavailable-jitter {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  17% {
+    transform: translate3d(0.7px, -0.3px, 0);
+  }
+  31% {
+    transform: translate3d(-1px, 0.2px, 0);
+  }
+  48% {
+    transform: translate3d(0.55px, 0.35px, 0);
+  }
+  73% {
+    transform: translate3d(-0.8px, -0.25px, 0);
+  }
+}
+@keyframes sidebar-unavailable-flicker {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  18% {
+    opacity: 0.18;
+  }
+  21% {
+    opacity: 0.34;
+  }
+  52% {
+    opacity: 0.22;
+  }
+  68% {
+    opacity: 0.3;
+  }
+}
 
 .sidebuttons {
   margin-right: 0.5vw !important;

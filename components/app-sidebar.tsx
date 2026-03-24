@@ -29,6 +29,8 @@ import {
 
 interface AppSidebarProps {
   curChatId?: string
+  chatMode: "chat" | "image" | "dark"
+  darkChatId?: string
   onChatSelect?: (chatId: string) => void
   onNewChat?: () => void
 }
@@ -41,7 +43,7 @@ const toastFrameStyle = {
   "--arwes-frames-line-filter": "drop-shadow(0 0 10px rgba(0, 239, 255, 0.36))",
 } as CSSProperties
 
-export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarProps) {
+export function AppSidebar({ curChatId, chatMode, darkChatId, onChatSelect, onNewChat }: AppSidebarProps) {
   const { chats, deleteChat, updateChat } = useChatStore()
   const bleeps = useBleeps<"notify">()
   const { isMobile, setOpenMobile } = useSidebar()
@@ -51,7 +53,13 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   const editRef = useRef<HTMLInputElement>(null)
   const lastSeenMsgByChatRef = useRef<Map<string, string>>(new Map())
   const hasMountedRef = useRef(false)
-  const visibleChats = chats.filter((chat) => chat.messages.length > 0)
+  const isDarkMode = chatMode === "dark"
+  const visibleChats = chats.filter((chat) => {
+    if (chat.temporary) {
+      return chat.id === darkChatId
+    }
+    return chat.messages.length > 0
+  })
   const toastChat = visibleChats.find((chat) => hotChatIds.has(chat.id))
   const notifToast = toastChat ? `${toastChat.title} | New message!!` : null
 
@@ -130,6 +138,9 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   }
 
   const pickChat = (chatId: string) => {
+    if (isDarkMode && chatId !== darkChatId) {
+      return
+    }
     setHotChatIds((prev) => {
       if (!prev.has(chatId)) return prev
       const next = new Set(prev)
@@ -141,12 +152,14 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   }
 
   const makeChat = () => {
+    if (isDarkMode) return
     onNewChat?.()
     closeSideM()
   }
 
   const delChat = (event: React.MouseEvent, chatId: string) => {
     event.stopPropagation()
+    if (isDarkMode) return
     deleteChat(chatId)
     setHotChatIds((prev) => {
       if (!prev.has(chatId)) return prev
@@ -162,6 +175,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
 
   const renameStart = (event: React.MouseEvent, chatId: string, currentTitle: string) => {
     event.stopPropagation()
+    if (isDarkMode) return
     setEditingChatId(chatId)
     setEditingTitle(currentTitle)
   }
@@ -183,7 +197,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
   }
 
   return (
-    <Sidebar className="border-r border-cyan-500/20">
+    <Sidebar className={`border-r border-cyan-500/20 ${isDarkMode ? "sidebar-dark-locked" : ""}`}>
       <SidebarContent className="relative flex h-full flex-col gap-0 overflow-hidden bg-black/5 backdrop-blur-sm">
         <FrameNefrex
           {...nekoPanel1}
@@ -205,6 +219,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
             onClick={makeChat}
             frame="underline"
             className="neko-btn-cyan-glow newChat-btn mx-3 mt-2 w-auto justify-center"
+            disabled={isDarkMode}
           >
             <NekoTxt as="span" className="font-medium tracking-[0.16em]" text="[+] NEW CHAT" trigger="new-chat" />
           </NekoBtn>
@@ -216,20 +231,23 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
                   <SidebarMenu className=" mb-24 flex flex-1 mt-0 mx-12 flex-col gap-1">
                   {visibleChats.map((chat) => {
                     const isEditing = editId === chat.id
-                    const hideForNew = chat.title.trim().toLowerCase() === "new chat"
+                    const hideForNew = !chat.temporary && chat.title.trim().toLowerCase() === "new chat"
                     const isActive = curChatId === chat.id
                     const isHot = hotChatIds.has(chat.id)
+                    const isUnavailable = isDarkMode && chat.id !== darkChatId
 
                     return (
                       <SidebarMenuItem
                         key={chat.id}
-                        className={`mx-6 min-w-0 sideitem ${isHot ? "hotshell" : ""}`}
+                        className={`mx-6 min-w-0 sideitem ${isHot ? "hotshell" : ""} ${isUnavailable ? "sidebar-chat-unavailable" : ""} ${chat.temporary ? "sidebar-chat-temp" : ""}`}
                       >
                         <div className="group relative grid min-w-0 grid-cols-[minmax(0,3fr)_auto]  items-center gap-3">
                           <FrameNefrex
                             {...nekoCard1}
                             className={`pointer-events-none absolute inset-0 z-0 transition-opacity ${
-                              isActive
+                              isUnavailable
+                                ? "opacity-35 sidebar-unavailable-frame"
+                                : isActive
                                 ? "opacity-80"
                                 : isHot
                                   ? "opacity-90 hotframe"
@@ -238,16 +256,18 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
                           />
                           <SidebarMenuButton
                             onClick={() => {
-                              if (!isEditing) {
+                              if (!isEditing && !isUnavailable) {
                                 pickChat(chat.id)
                               }
                             }}
-                            isActive={isActive}
+                            isActive={isActive && !isUnavailable}
+                            disabled={isUnavailable}
+                            aria-disabled={isUnavailable}
                             className={`itemshape relative z-10 min-w-0 w-full bg-transparent text-cyan-200/90 data-[active=true]:text-cyan-100 ${
                               isHot ? "hotbtn" : ""
-                            }`}
+                            } ${isUnavailable ? "sidebar-unavailable-btn" : ""}`}
                           >
-                            {isHot && <span className="hotdot" aria-hidden />}
+                            {isHot && !isUnavailable && <span className="hotdot" aria-hidden />}
                             <MessageSquare className="h-4 w-4 mt-6 ml-4" />
                             {isEditing ? (
                               <Input
@@ -278,7 +298,7 @@ export function AppSidebar({ curChatId, onChatSelect, onNewChat }: AppSidebarPro
                             )}
                           </SidebarMenuButton>
 
-                          {!hideForNew && !isEditing && (
+                          {!hideForNew && !isEditing && !isDarkMode && (
                             <div className="relative sidebuttons flex items-center gap-1 sm:gap-2">
                               <NekoBtn
                                 type="button"

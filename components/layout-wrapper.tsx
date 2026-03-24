@@ -22,6 +22,8 @@ interface ChatSessCtx {
   setCurChatId: (chatId: string) => void
   chatMode: ChatMode
   setChatMode: (mode: ChatMode) => void
+  isDarkMode: boolean
+  darkChatId?: string
 }
 
 const chatCookieKey = "current_chat_id"
@@ -38,11 +40,14 @@ export function useChatSess() {
 }
 
 export function LayoutWrapper({ children }: LayoutWrapperProps) {
-  const { getOrNew } = useChatStore()
+  const { getOrNew, getChat, createTemporaryChat, deleteChat } = useChatStore()
   const { animOn, toggleAnim } = useNekoUi()
   const [curChatId, setCurChatId] = useState<string | undefined>()
   const [chatMode, setChatMode] = useState<ChatMode>("chat")
+  const [darkChatId, setDarkChatId] = useState<string | undefined>()
   const prevAnimOnRef = useRef(animOn)
+  const prevModeRef = useRef<Exclude<ChatMode, "dark">>("chat")
+  const prevChatIdRef = useRef<string | undefined>(undefined)
   const modeLabel =
     chatMode === "dark" ? "DARK MODE" : chatMode === "chat" ? "CHAT MODE" : "IMAGE MODE"
 
@@ -70,7 +75,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
       localStorage.getItem("curChatId") ??
       readCookie(chatCookieKey)
 
-    if (storedChatId) {
+    if (storedChatId && getChat(storedChatId) && !getChat(storedChatId)?.temporary) {
       setCurChatId(storedChatId)
       localStorage.setItem("currentChatId", storedChatId)
       localStorage.setItem("curChatId", storedChatId)
@@ -79,15 +84,17 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
 
     const newChat = getOrNew()
     setCurChatId(newChat.id)
-  }, [getOrNew, readCookie])
+  }, [getChat, getOrNew, readCookie])
 
   useEffect(() => {
     if (!curChatId) return
+    const currentChat = getChat(curChatId)
+    if (currentChat?.temporary) return
 
     localStorage.setItem("currentChatId", curChatId)
     localStorage.setItem("curChatId", curChatId)
     document.cookie = `${chatCookieKey}=${encodeURIComponent(curChatId)}; path=/; max-age=${chatCookieAge}; samesite=lax`
-  }, [curChatId])
+  }, [curChatId, getChat])
 
   useEffect(() => {
     const onNewChatEvt = () => {
@@ -98,18 +105,54 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
     return () => window.removeEventListener("newChat", onNewChatEvt)
   }, [newChat])
 
+  const activateDarkMode = useCallback(() => {
+    if (darkChatId) {
+      setCurChatId(darkChatId)
+      setChatMode("dark")
+      return
+    }
+
+    prevModeRef.current = chatMode === "image" ? "image" : "chat"
+    prevChatIdRef.current = curChatId
+    const nextDarkChat = createTemporaryChat()
+    setDarkChatId(nextDarkChat.id)
+    setCurChatId(nextDarkChat.id)
+    setChatMode("dark")
+  }, [chatMode, createTemporaryChat, curChatId, darkChatId])
+
+  const deactivateDarkMode = useCallback(() => {
+    const restoreMode = prevModeRef.current
+    const restoreChatId = prevChatIdRef.current
+    const tempChatId = darkChatId
+
+    if (tempChatId) {
+      deleteChat(tempChatId)
+      setDarkChatId(undefined)
+    }
+
+    if (restoreChatId && getChat(restoreChatId)) {
+      setCurChatId(restoreChatId)
+    } else {
+      const nextChat = getOrNew()
+      setCurChatId(nextChat.id)
+    }
+
+    setChatMode(restoreMode)
+    prevChatIdRef.current = undefined
+  }, [darkChatId, deleteChat, getChat, getOrNew])
+
   useEffect(() => {
     if (!animOn) {
       if (chatMode !== "dark") {
-        setChatMode("dark")
+        activateDarkMode()
       }
       return
     }
 
     if (chatMode === "dark") {
-      setChatMode("chat")
+      deactivateDarkMode()
     }
-  }, [animOn, chatMode])
+  }, [activateDarkMode, animOn, chatMode, deactivateDarkMode])
 
   useEffect(() => {
     if (typeof document === "undefined") return
@@ -127,6 +170,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   }, [animOn])
 
   const pickChat = (chatId: string) => {
+    if (chatMode === "dark") return
     setCurChatId(chatId)
   }
 
@@ -136,8 +180,10 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
       setCurChatId: pickChat,
       chatMode,
       setChatMode,
+      isDarkMode: chatMode === "dark",
+      darkChatId,
     }),
-    [chatMode, curChatId]
+    [chatMode, curChatId, darkChatId]
   )
 
   return (
@@ -147,6 +193,8 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
           <div className="flex h-dvh w-full overflow-hidden">
             <AppSidebar
               curChatId={curChatId}
+              chatMode={chatMode}
+              darkChatId={darkChatId}
               onChatSelect={pickChat}
               onNewChat={newChat}
             />

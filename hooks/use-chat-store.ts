@@ -15,6 +15,7 @@ export function useChatStore() {
 
   const getChat = useCallback((id: string) => chatStore.getChat(id), [])
   const createChat = useCallback(() => chatStore.createChat(), [])
+  const createTemporaryChat = useCallback(() => chatStore.createTemporaryChat(), [])
   const getOrNew = useCallback(() => chatStore.getOrNew(), [])
   const updateChat = useCallback((id: string, updates: Partial<Chat>) => chatStore.updateChat(id, updates), [])
   const addMessage = useCallback((chatId: string, message: any) => chatStore.addMessage(chatId, message), [])
@@ -26,6 +27,7 @@ export function useChatStore() {
   return {
     chats,
     createChat,
+    createTemporaryChat,
     getOrNew,
     getChat,
     updateChat,

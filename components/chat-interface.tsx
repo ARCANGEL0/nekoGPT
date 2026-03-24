@@ -27,6 +27,8 @@ interface ChatInterfaceProps {
 
  const API_BASE_URL = "https://api.arcangelo.net"
 const LOADING_LABEL = "L o a d i n g . . ."
+const DARK_WAIT_LABEL = "Please wait"
+const DARK_WAIT_ALT_LABEL = "Loading . . . ."
 const API_ENDPOINTS = {
   neko: "/neko",
   dark: "/neko_dark",
@@ -36,6 +38,7 @@ const API_ENDPOINTS = {
 } as const
 const DEBUG_REQUEST_LOGS = process.env.NODE_ENV !== "production"
 const PENDING_IMAGE_TASKS_KEY = "pending_image_tasks_v1"
+const DARK_TASK_POLL_MS = 2200
 const IMAGE_TASK_POLL_MS = {
         imagine: 6000,
    multiEdit: 7000,
@@ -238,6 +241,43 @@ const getDayKey = (date: Date): string => {
   const month = `${date.getMonth() + 1}`.padStart(2, "0")
   const day = `${date.getDate()}`.padStart(2, "0")
   return `${year}-${month}-${day}`
+}
+
+function LoadingStatusText({
+  messageId,
+  primaryText,
+  alternateText,
+}: {
+  messageId: string
+  primaryText: string
+  alternateText?: string
+}) {
+  const [phase, setPhase] = useState(0)
+  const activeText =
+    alternateText && phase % 2 === 1
+      ? alternateText
+      : primaryText
+
+  useEffect(() => {
+    if (!alternateText) return
+
+    const intervalId = window.setInterval(() => {
+      setPhase((prev) => prev + 1)
+    }, 1800)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [alternateText, messageId])
+
+  return (
+    <SlowDecipherText
+      text={activeText}
+      trigger={`${messageId}-${phase}`}
+      durationMs={950}
+      stepMs={42}
+    />
+  )
 }
 
 export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps) {
@@ -543,6 +583,18 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     }
   }, [addAidMsg, bleeps.content, commitMsgReplacement, getChat, updateChat])
 
+  const setLoadAidMsgText = useCallback((
+    targetChatId: string,
+    loadMsgId: string,
+    content: string
+  ) => {
+    updateMessage(targetChatId, loadMsgId, {
+      content,
+      timestamp: new Date(),
+      responseState: "loading",
+    })
+  }, [updateMessage])
+
   const rmLoadAidMsg = useCallback((targetChatId: string, loadMsgId: string) => {
     const reqMeta = reqMetaByChatRef.current.get(targetChatId)
     if (reqMeta?.loadingMessageId === loadMsgId && reqMeta.loadingMode === "replace") {
@@ -703,6 +755,10 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     reqMeta?.abortController?.abort()
     reqMetaByChatRef.current.delete(chatToStop)
     setChatInFlight(chatToStop, false)
+    updateChat(chatToStop, {
+      darkJobId: undefined,
+      darkTaskId: undefined,
+    })
   }
 
   const rtjson = useCallback((rawText: string): Record<string, unknown> | null => {
@@ -792,6 +848,27 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
 
       signal.addEventListener("abort", onAbort, { once: true })
       reader.readAsDataURL(file)
+    })
+
+  const waitForTaskPoll = (signal: AbortSignal, ms: number): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException("Aborted", "AbortError"))
+        return
+      }
+
+      const timerId = window.setTimeout(() => {
+        signal.removeEventListener("abort", onAbort)
+        resolve()
+      }, ms)
+
+      const onAbort = () => {
+        window.clearTimeout(timerId)
+        signal.removeEventListener("abort", onAbort)
+        reject(new DOMException("Aborted", "AbortError"))
+      }
+
+      signal.addEventListener("abort", onAbort, { once: true })
     })
 
   const reqImagineInit = async (
@@ -1003,38 +1080,120 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     targetChatId: string,
     prompt: string,
     chatName: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    loadMsgId: string,
+    excludedMessageIds?: Set<string>
   ): Promise<string> => {
-    const response = await reqJson(
-      API_ENDPOINTS.dark,
-      prompt,
-      chatName,
-      { message: prompt },
-      signal,
-      targetChatId
-    )
+    const conversation = nekoMsgs(targetChatId, prompt, excludedMessageIds)
+    let nextTaskId: string | undefined
+    let isPolling = false
 
-    const rawText = await response.text()
+    while (true) {
+      const requestBody: Record<string, unknown> = isPolling
+        ? { taskId: nextTaskId }
+        : { conversation }
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 220)}`)
-    }
+      const response = await reqJson(
+        API_ENDPOINTS.dark,
+        prompt,
+        chatName,
+        requestBody,
+        signal,
+        targetChatId
+      )
 
-    const parsed = rtjson(rawText)
-    if (parsed) {
-      const candidate = parsed.response
+      const rawText = await response.text()
 
-      if (typeof candidate === "string" && candidate.trim().length > 0) {
-        return candidate
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 220)}`)
       }
-    }
 
-    const trimmed = rawText.trim()
-    if (trimmed.length > 0) {
-      return trimmed
-    }
+      const parsed = rtjson(rawText)
+      if (!parsed) {
+        const trimmed = rawText.trim()
+        if (trimmed.length > 0) {
+          return trimmed
+        }
+        throw new Error("No valid response content from DARK API.")
+      }
 
-    throw new Error("No valid response content from DARK API.")
+      const parsedStatus = parsed.status
+      const normalizedStatus =
+        typeof parsedStatus === "string" ? parsedStatus.toLowerCase() : ""
+      const responseText =
+        typeof parsed.response === "string" ? parsed.response.trim() : ""
+      const errorText =
+        typeof parsed.error === "string"
+          ? parsed.error.trim()
+          : typeof parsed.message === "string"
+            ? parsed.message.trim()
+            : ""
+      const responseComplete =
+        parsedStatus === true ||
+        normalizedStatus === "completed" ||
+        normalizedStatus === "done" ||
+        normalizedStatus === "success"
+      const responsePending =
+        normalizedStatus === "pending" ||
+        normalizedStatus === "processing" ||
+        normalizedStatus === "queued" ||
+        normalizedStatus === "running" ||
+        (parsedStatus === false && !errorText)
+      const responseErrored =
+        normalizedStatus === "error" ||
+        normalizedStatus === "failed"
+      const parsedTaskId =
+        typeof parsed.taskId === "string" && parsed.taskId.trim().length > 0
+          ? parsed.taskId
+          : typeof parsed.task_id === "string" && parsed.task_id.trim().length > 0
+            ? parsed.task_id
+          : undefined
+
+      if (parsedTaskId) {
+        nextTaskId = parsedTaskId ?? nextTaskId
+        updateChat(targetChatId, {
+          darkJobId: undefined,
+          darkTaskId: nextTaskId,
+        })
+        setLoadAidMsgText(targetChatId, loadMsgId, DARK_WAIT_LABEL)
+      }
+
+      if (responseComplete && responseText.length > 0) {
+        updateChat(targetChatId, {
+          darkJobId: undefined,
+          darkTaskId: undefined,
+        })
+        return responseText
+      }
+
+      if (responseErrored || (errorText.length > 0 && !responsePending)) {
+        updateChat(targetChatId, {
+          darkJobId: undefined,
+          darkTaskId: undefined,
+        })
+        throw new Error(errorText || "DARK API returned an error.")
+      }
+
+      if (!isPolling && parsedTaskId) {
+        isPolling = true
+        await waitForTaskPoll(signal, DARK_TASK_POLL_MS)
+        continue
+      }
+
+      if (!nextTaskId) {
+        if (responseText.length > 0) {
+          updateChat(targetChatId, {
+            darkJobId: undefined,
+            darkTaskId: undefined,
+          })
+          return responseText
+        }
+        throw new Error("DARK API did not return a task id.")
+      }
+
+      isPolling = true
+      await waitForTaskPoll(signal, DARK_TASK_POLL_MS)
+    }
   }
 
   const nekoai = async (
@@ -1166,7 +1325,9 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
           targetChatId,
           prompt,
           chatName,
-          ctrl.signal
+          ctrl.signal,
+          loadMsgId,
+          options?.excludedMessageIds
         )
 
         if (!isReqTokenCurrent(targetChatId, reqTok)) return
@@ -1285,8 +1446,21 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
     } catch (error) {
       if (!isReqTokenCurrent(targetChatId, reqTok)) return
       if (error instanceof DOMException && error.name === "AbortError") {
+        if (chatMode === "dark") {
+          updateChat(targetChatId, {
+            darkJobId: undefined,
+            darkTaskId: undefined,
+          })
+        }
         rmLoadAidMsg(targetChatId, loadMsgId)
         return
+      }
+
+      if (chatMode === "dark") {
+        updateChat(targetChatId, {
+          darkJobId: undefined,
+          darkTaskId: undefined,
+        })
       }
 
       repLoadAidMsg(
@@ -2165,6 +2339,10 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                 const showImageActions = inlineImgs.length > 0 && txtBody.length === 0
                 const showRevisionNav = !isUserMessage && revisionCount > 1
                 const isDarkMode = chatMode === "dark"
+                const isDarkQueueWait =
+                  isDarkMode &&
+                  isLoadAid &&
+                  message.content.trim().toLowerCase() === DARK_WAIT_LABEL.toLowerCase()
                 const bubbleStyle = isDarkMode
                   ? isUserMessage
                     ? usrBubbleStyleDark
@@ -2206,12 +2384,20 @@ export function ChatInterface({ chatId, chatMode = "chat" }: ChatInterfaceProps)
                         >
                           {isLoadAid ? (
                             <p className="relative z-[2] text-decipher loadingtxt text-cyan-200">
-                              <SlowDecipherText
-                                text={LOADING_LABEL}
-                                trigger={message.id}
-                                durationMs={1500}
-                                loop
-                              />
+                              {isDarkQueueWait ? (
+                                <LoadingStatusText
+                                  messageId={message.id}
+                                  primaryText={DARK_WAIT_LABEL}
+                                  alternateText={DARK_WAIT_ALT_LABEL}
+                                />
+                              ) : (
+                                <SlowDecipherText
+                                  text={LOADING_LABEL}
+                                  trigger={message.id}
+                                  durationMs={1500}
+                                  loop
+                                />
+                              )}
                             </p>
                           ) : (
                             txtBody.length > 0 && (

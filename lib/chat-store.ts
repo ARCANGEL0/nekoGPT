@@ -28,6 +28,9 @@ export interface Chat {
   messages: Message[]
   createdAt: Date
   updatedAt: Date
+  temporary?: boolean
+  darkJobId?: string
+  darkTaskId?: string
 }
 
 interface SessCookie {
@@ -215,7 +218,9 @@ export class ChatStore {
   }
 
   private saveCookie() {
-    const sessEntries: SessCookie[] = this.getAllChats().map((chat) => ({
+    const sessEntries: SessCookie[] = this.getAllChats()
+      .filter((chat) => !chat.temporary)
+      .map((chat) => ({
       id: chat.id,
       backendSessionId: chat.backendSessionId,
       title: chat.title,
@@ -300,6 +305,9 @@ export class ChatStore {
     if (typeof window !== 'undefined') {
       const toSave: Record<string, Chat> = {}
       this.chats.forEach((chat, id) => {
+        if (chat.temporary) {
+          return
+        }
         toSave[id] = chat
       })
       localStorage.setItem('chats', JSON.stringify(toSave))
@@ -322,8 +330,23 @@ export class ChatStore {
     return chat
   }
 
+  createTemporaryChat(title = "Anonymous Session"): Chat {
+    const chat: Chat = {
+      id: this.genId(),
+      backendSessionId: this.genBackId("DARK_MODE"),
+      title,
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      temporary: true,
+    }
+    this.chats.set(chat.id, chat)
+    this.notify()
+    return chat
+  }
+
   private isReuseNew(chat: Chat): boolean {
-    return chat.title.trim().toLowerCase() === "new chat" && chat.messages.length === 0
+    return !chat.temporary && chat.title.trim().toLowerCase() === "new chat" && chat.messages.length === 0
   }
 
   getOrNew(): Chat {
