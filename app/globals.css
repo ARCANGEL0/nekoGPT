@@ -5060,9 +5060,6 @@ clip-path: polygon(
   color: rgba(212, 254, 255, 0.84);
 }
 .chat-timestamp-assistant {
-  background:
-    linear-gradient(135deg, rgba(64, 220, 255, 0.08), rgba(0, 24, 42, 0.08)),
-    rgba(2, 15, 28, 0.2);
   color: rgba(165, 244, 255, 0.78);
 }
 /* stuff */
